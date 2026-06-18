@@ -63,6 +63,85 @@ const defaultWorkspace: Record<Role, ModuleId> = {
   Admin: "dashboard"
 };
 
+type RolePageDescription = {
+  title: string;
+  description: string;
+  checkpoints: string[];
+};
+
+const rolePageDescriptions: Record<Role, Partial<Record<ModuleId, RolePageDescription>>> = {
+  "Ward Clerk": {
+    ehr: {
+      title: "Ward Clerk Admission Workspace",
+      description: "Create the initial patient record, capture admission details, and generate the wristband barcode that starts the medication loop.",
+      checkpoints: ["Patient profile", "Wristband barcode", "Admission timestamp"]
+    }
+  },
+  Physician: {
+    cpoe: {
+      title: "Physician CPOE Workspace",
+      description: "Select the correct patient, enter a complete medication order, review demo safety alerts, and send the order to pharmacy.",
+      checkpoints: ["Medication order", "Required fields", "Demo safety alerts"]
+    }
+  },
+  Pharmacist: {
+    pharmacy: {
+      title: "Pharmacist Verification Workspace",
+      description: "Review pending physician orders with patient context, approve or reject orders, add notes, and generate dose barcodes for dispensed medications.",
+      checkpoints: ["Order review", "Approval decision", "Dose barcode"]
+    }
+  },
+  Nurse: {
+    bcma: {
+      title: "Nurse BCMA Administration Workspace",
+      description: "Scan the patient and medication barcodes, verify the Five Rights, and document administered, held, or missed medications.",
+      checkpoints: ["Patient scan", "Medication scan", "Five Rights"]
+    },
+    handover: {
+      title: "Nurse Handover Workspace",
+      description: "Review the active medication picture before shift transfer, including recent administrations, missed or held doses, pending pharmacy items, and alerts.",
+      checkpoints: ["Recent events", "Missed or held meds", "Pending items"]
+    }
+  },
+  Admin: {
+    dashboard: {
+      title: "Admin Operations Dashboard",
+      description: "Monitor the whole demo workflow across admissions, medication orders, pharmacy queues, due medications, safety alerts, and audit events.",
+      checkpoints: ["System counts", "Recent audit", "Safety alerts"]
+    },
+    ehr: {
+      title: "Admin EHR Oversight",
+      description: "Review or demonstrate the admission record workflow while retaining full visibility into patient details and timeline activity.",
+      checkpoints: ["Patient record", "Barcode identity", "Timeline"]
+    },
+    cpoe: {
+      title: "Admin CPOE Oversight",
+      description: "Inspect the order-entry flow and safety alert generation from an administrative demo perspective.",
+      checkpoints: ["Order completeness", "Alert generation", "Pharmacy routing"]
+    },
+    pharmacy: {
+      title: "Admin Pharmacy Oversight",
+      description: "Observe pharmacy queue decisions, dispensing status, pharmacist notes, and medication barcode generation.",
+      checkpoints: ["Verification queue", "Dispense status", "Barcode tracking"]
+    },
+    bcma: {
+      title: "Admin BCMA Oversight",
+      description: "Review the nurse scanning workflow and confirm that medication administration remains tied to patient, order, and barcode checks.",
+      checkpoints: ["Five Rights", "Administration record", "Status update"]
+    },
+    handover: {
+      title: "Admin Handover Oversight",
+      description: "View cross-shift medication continuity information, including active orders, recent events, and unresolved medication items.",
+      checkpoints: ["Patient summary", "Continuity risks", "Recent timeline"]
+    },
+    audit: {
+      title: "Admin Audit Workspace",
+      description: "Trace accountability across the full medication loop with timestamps, roles, users, patients, orders, and action descriptions.",
+      checkpoints: ["Timestamp", "Responsible user", "Action history"]
+    }
+  }
+};
+
 const emptyAdmissionForm = {
   name: "",
   dateOfBirth: "",
@@ -262,6 +341,37 @@ const inputClass =
 
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="rounded-md border border-dashed border-clinical-line bg-clinical-panel p-6 text-sm text-clinical-muted">{children}</div>;
+}
+
+function RoleDescriptionPanel({
+  role,
+  moduleId
+}: {
+  role: Role;
+  moduleId: ModuleId;
+}) {
+  const description = rolePageDescriptions[role][moduleId];
+
+  if (!description) return null;
+
+  return (
+    <section className="rounded-lg border border-clinical-line bg-white p-5 shadow-soft">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <Badge className="border-clinical-line bg-clinical-panel text-clinical-muted">{role}</Badge>
+          <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{description.title}</h2>
+          <p className="mt-2 text-sm leading-6 text-clinical-muted">{description.description}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 lg:max-w-md lg:justify-end">
+          {description.checkpoints.map((checkpoint) => (
+            <span key={checkpoint} className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
+              {checkpoint}
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export default function Home() {
@@ -717,6 +827,8 @@ export default function Home() {
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
+        <RoleDescriptionPanel role={currentUser.role} moduleId={safeActiveModule} />
+
         {safeActiveModule === "dashboard" ? (
           <div className="grid gap-5">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
