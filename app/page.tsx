@@ -38,6 +38,7 @@ const storageKey = "bcma-cpoe-ehr-demo-state";
 
 const modules = [
   { id: "dashboard", label: "Dashboard", icon: Activity },
+  { id: "workflow", label: "Demo Workflow", icon: ClipboardList },
   { id: "ehr", label: "EHR / Admission", icon: UserPlus },
   { id: "cpoe", label: "CPOE Orders", icon: Stethoscope },
   { id: "pharmacy", label: "Pharmacy", icon: Pill },
@@ -53,7 +54,7 @@ const roleWorkspaces: Record<Role, ModuleId[]> = {
   Physician: ["cpoe"],
   Pharmacist: ["pharmacy"],
   Nurse: ["bcma", "handover"],
-  Admin: ["dashboard", "ehr", "cpoe", "pharmacy", "bcma", "handover", "audit"]
+  Admin: ["dashboard", "workflow", "ehr", "cpoe", "pharmacy", "bcma", "handover", "audit"]
 };
 
 const defaultWorkspace: Record<Role, ModuleId> = {
@@ -110,6 +111,11 @@ const rolePageDescriptions: Record<Role, Partial<Record<ModuleId, RolePageDescri
       description: "Monitor the whole demo workflow across admissions, medication orders, pharmacy queues, due medications, safety alerts, and audit events.",
       checkpoints: ["System counts", "Recent audit", "Safety alerts"]
     },
+    workflow: {
+      title: "Admin Demo Workflow Guide",
+      description: "Use this guided sequence to present the complete medication loop from admission through ordering, pharmacy verification, BCMA administration, handover, and audit.",
+      checkpoints: ["Presentation path", "Role sequence", "Live status"]
+    },
     ehr: {
       title: "Admin EHR Oversight",
       description: "Review or demonstrate the admission record workflow while retaining full visibility into patient details and timeline activity.",
@@ -142,6 +148,82 @@ const rolePageDescriptions: Record<Role, Partial<Record<ModuleId, RolePageDescri
     }
   }
 };
+
+type DemoWorkflowStep = {
+  id: string;
+  role: Role;
+  moduleId: ModuleId;
+  title: string;
+  action: string;
+  result: string;
+};
+
+const demoWorkflowSteps: DemoWorkflowStep[] = [
+  {
+    id: "admission",
+    role: "Ward Clerk",
+    moduleId: "ehr",
+    title: "Admit patient and create wristband",
+    action: "Create a patient profile with allergies, current medications, renal function, and lab values.",
+    result: "The patient appears in the EHR dashboard with a generated wristband barcode."
+  },
+  {
+    id: "order",
+    role: "Physician",
+    moduleId: "cpoe",
+    title: "Enter medication order",
+    action: "Select the patient, enter drug, dose, route, frequency, scheduled time, and submit to pharmacy.",
+    result: "The order moves to Pharmacy Review and mock demo safety alerts are generated when rules match."
+  },
+  {
+    id: "verify",
+    role: "Pharmacist",
+    moduleId: "pharmacy",
+    title: "Verify order and generate dose barcode",
+    action: "Review patient context and alerts, then approve or reject the medication order.",
+    result: "Approved orders receive a medication dose barcode for BCMA scanning."
+  },
+  {
+    id: "dispense",
+    role: "Pharmacist",
+    moduleId: "pharmacy",
+    title: "Dispense prepared medication",
+    action: "Mark the approved medication as dispensed after barcode generation.",
+    result: "The order status becomes Dispensed and is ready for nurse administration."
+  },
+  {
+    id: "administer",
+    role: "Nurse",
+    moduleId: "bcma",
+    title: "Scan and verify Five Rights",
+    action: "Scan the patient barcode and medication barcode, then review each Five Rights check.",
+    result: "Administration is blocked until the demo checks pass for patient, drug, dose, route, and time."
+  },
+  {
+    id: "document",
+    role: "Nurse",
+    moduleId: "bcma",
+    title: "Document administration",
+    action: "Mark the medication as administered, held, or missed after verification.",
+    result: "The EHR timeline, order status, administration log, and audit trail update automatically."
+  },
+  {
+    id: "handover",
+    role: "Nurse",
+    moduleId: "handover",
+    title: "Review handover",
+    action: "Open handover to review active meds, recently administered meds, pending pharmacy items, alerts, and recent timeline.",
+    result: "The next shift gets a concise medication continuity picture."
+  },
+  {
+    id: "audit",
+    role: "Admin",
+    moduleId: "audit",
+    title: "Audit accountability",
+    action: "Review timestamped events across admission, ordering, alerts, pharmacy actions, administration, and handover.",
+    result: "Every meaningful action is traceable by role, user, patient, order, and description."
+  }
+];
 
 const emptyAdmissionForm = {
   name: "",
@@ -449,6 +531,20 @@ export default function Home() {
       recentAuditEvents: state.auditEvents.slice(-5).reverse()
     };
   }, [state]);
+
+  const demoWorkflowStatus = useMemo(
+    () => ({
+      admission: state.patients.length > 0,
+      order: state.orders.length > 0,
+      verify: state.orders.some((order) => ["Approved", "Dispensed", "Administered", "Missed/Held"].includes(order.status)),
+      dispense: state.orders.some((order) => ["Dispensed", "Administered", "Missed/Held"].includes(order.status)),
+      administer: state.orders.some((order) => order.status === "Administered" || order.status === "Missed/Held"),
+      document: state.administrations.length > 0,
+      handover: state.auditEvents.some((event) => event.actionType === "Handover viewed" || event.actionType === "Handover note added"),
+      audit: state.auditEvents.length > 0
+    }),
+    [state]
+  );
 
   const activeOrdersForPatient = (patientId: string) =>
     state.orders.filter((order) => order.patientId === patientId && !["Rejected", "Administered", "Missed/Held"].includes(order.status));
@@ -908,6 +1004,10 @@ export default function Home() {
           </div>
         ) : null}
 
+        {safeActiveModule === "workflow" ? (
+          <DemoWorkflowGuide steps={demoWorkflowSteps} statuses={demoWorkflowStatus} onOpenModule={setActiveModule} />
+        ) : null}
+
         {safeActiveModule === "ehr" ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <Section title="Admission" icon={UserPlus}>
@@ -1287,6 +1387,70 @@ function StatTile({ label, value, icon: Icon }: { label: string; value: number; 
         <Icon className="h-5 w-5 text-clinical-teal" aria-hidden="true" />
       </div>
       <div className="mt-3 text-3xl font-bold text-clinical-ink">{value}</div>
+    </div>
+  );
+}
+
+function DemoWorkflowGuide({
+  steps,
+  statuses,
+  onOpenModule
+}: {
+  steps: DemoWorkflowStep[];
+  statuses: Record<string, boolean>;
+  onOpenModule: (moduleId: ModuleId) => void;
+}) {
+  const completedCount = steps.filter((step) => statuses[step.id]).length;
+
+  return (
+    <div className="grid gap-5">
+      <Section title="Full Demo Script" icon={ClipboardList}>
+        <div className="grid gap-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <InfoBlock title="Workflow coverage" value={`${completedCount} of ${steps.length} steps have demo evidence`} />
+            <InfoBlock title="Starting role" value="Ward Clerk" />
+            <InfoBlock title="Final review" value="Admin audit trail" />
+          </div>
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+            Present this as a handoff between roles: admission creates the patient identity, CPOE creates the order, pharmacy creates the medication barcode, BCMA verifies the Five Rights, and audit shows accountability.
+          </div>
+        </div>
+      </Section>
+
+      <div className="grid gap-4">
+        {steps.map((step, index) => {
+          const moduleLabel = modules.find((moduleItem) => moduleItem.id === step.moduleId)?.label ?? step.moduleId;
+          const complete = statuses[step.id];
+
+          return (
+            <section key={step.id} className="rounded-lg border border-clinical-line bg-white p-5 shadow-soft">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="border-clinical-line bg-clinical-panel text-clinical-muted">Step {index + 1}</Badge>
+                    <Badge className="border-blue-200 bg-blue-50 text-blue-800">{step.role}</Badge>
+                    <Badge className={complete ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-800"}>
+                      {complete ? "Evidence present" : "Needs demo action"}
+                    </Badge>
+                  </div>
+                  <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{step.title}</h2>
+                  <div className="mt-3 grid gap-3 md:grid-cols-2">
+                    <InfoBlock title="Action" value={step.action} />
+                    <InfoBlock title="Expected result" value={step.result} />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenModule(step.moduleId)}
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink shadow-sm hover:bg-clinical-panel"
+                >
+                  Open {moduleLabel}
+                </button>
+              </div>
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }
