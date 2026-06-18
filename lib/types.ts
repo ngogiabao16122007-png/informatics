@@ -125,6 +125,7 @@ export type AuditEvent = {
   role: Role;
   actionType:
     | "Patient created"
+    | "Patient deleted"
     | "Order submitted"
     | "Alert generated"
     | "Pharmacy approved"

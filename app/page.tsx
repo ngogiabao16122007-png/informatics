@@ -13,6 +13,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Stethoscope,
+  Trash2,
   UserPlus
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -390,6 +391,7 @@ export default function Home() {
   const [administrationNote, setAdministrationNote] = useState("");
   const [handoverPatientId, setHandoverPatientId] = useState(seedState.patients[0]?.id ?? "");
   const [handoverNote, setHandoverNote] = useState("");
+  const [pendingDeletePatientId, setPendingDeletePatientId] = useState<string | null>(null);
 
   const currentUser = demoUsers.find((user) => user.id === currentUserId) ?? demoUsers[0];
   const selectedPatient = state.patients.find((patient) => patient.id === selectedPatientId) ?? state.patients[0];
@@ -402,6 +404,7 @@ export default function Home() {
     const nextUser = demoUsers.find((user) => user.id === userId) ?? demoUsers[0];
     setCurrentUserId(nextUser.id);
     setActiveModule(defaultWorkspace[nextUser.role]);
+    setPendingDeletePatientId(null);
   }
 
   useEffect(() => {
@@ -764,6 +767,61 @@ export default function Home() {
     setMedicationScan("");
     setHandoverPatientId(seedState.patients[0]?.id ?? "");
     setActiveModule(defaultWorkspace[currentUser.role]);
+    setPendingDeletePatientId(null);
+  }
+
+  function requestDeleteSelectedPatient() {
+    if (currentUser.role !== "Admin" || !selectedPatient) return;
+    setPendingDeletePatientId(selectedPatient.id);
+  }
+
+  function confirmDeleteSelectedPatient() {
+    if (currentUser.role !== "Admin" || !selectedPatient || pendingDeletePatientId !== selectedPatient.id) return;
+
+    const relatedOrders = state.orders.filter((order) => order.patientId === selectedPatient.id);
+    const relatedAdministrations = state.administrations.filter((administration) => administration.patientId === selectedPatient.id);
+    const relatedDispenses = state.dispenses.filter((dispense) => dispense.patientId === selectedPatient.id);
+    const relatedAlerts = state.alerts.filter((alert) => alert.patientId === selectedPatient.id);
+    const timestamp = new Date().toISOString();
+    const deletedPatientId = selectedPatient.id;
+    const deletedPatientName = selectedPatient.name;
+    const deletedOrderIds = new Set(relatedOrders.map((order) => order.id));
+    const remainingPatients = state.patients.filter((patient) => patient.id !== deletedPatientId);
+    const nextPatientId = remainingPatients[0]?.id ?? "";
+    const audit = createAuditEvent(
+      currentUser,
+      "Patient deleted",
+      `Deleted ${deletedPatientName}'s demo profile and removed ${relatedOrders.length} order(s), ${relatedAlerts.length} alert(s), ${relatedDispenses.length} dispense record(s), and ${relatedAdministrations.length} administration record(s).`,
+      deletedPatientId,
+      undefined,
+      timestamp
+    );
+
+    setState((previous) => ({
+      ...previous,
+      patients: previous.patients.filter((patient) => patient.id !== deletedPatientId),
+      orders: previous.orders.filter((order) => order.patientId !== deletedPatientId),
+      dispenses: previous.dispenses.filter((dispense) => dispense.patientId !== deletedPatientId),
+      administrations: previous.administrations.filter((administration) => administration.patientId !== deletedPatientId),
+      alerts: previous.alerts.filter((alert) => alert.patientId !== deletedPatientId),
+      auditEvents: [...previous.auditEvents, audit]
+    }));
+    setSelectedPatientId(nextPatientId);
+    setHandoverPatientId(nextPatientId);
+    setOrderForm((form) => ({ ...form, patientId: form.patientId === deletedPatientId ? nextPatientId : form.patientId }));
+    setPatientScan((scan) => (scan === selectedPatient.barcode ? "" : scan));
+    setMedicationScan((scan) => {
+      const scannedOrder = state.orders.find((order) => order.doseBarcode === scan);
+      return scannedOrder && deletedOrderIds.has(scannedOrder.id) ? "" : scan;
+    });
+    setPharmacyNotes((notes) => {
+      const nextNotes = { ...notes };
+      deletedOrderIds.forEach((orderId) => {
+        delete nextNotes[orderId];
+      });
+      return nextNotes;
+    });
+    setPendingDeletePatientId(null);
   }
 
   return (
@@ -896,10 +954,53 @@ export default function Home() {
                 </button>
               </form>
             </Section>
-            <Section title="Patient Record" icon={Hospital}>
+            <Section
+              title="Patient Record"
+              icon={Hospital}
+              action={
+                currentUser.role === "Admin" && selectedPatient ? (
+                  pendingDeletePatientId === selectedPatient.id ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPendingDeletePatientId(null)}
+                        className="inline-flex min-h-10 items-center justify-center rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink shadow-sm hover:bg-clinical-panel"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={confirmDeleteSelectedPatient}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-red-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-800"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        Confirm Delete
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={requestDeleteSelectedPatient}
+                      className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 shadow-sm hover:bg-red-50"
+                      title="Delete selected demo patient profile"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Delete Patient
+                    </button>
+                  )
+                ) : null
+              }
+            >
               <div className="grid gap-4">
                 <Field label="Select patient">
-                  <select className={inputClass} value={selectedPatient?.id ?? ""} onChange={(event) => setSelectedPatientId(event.target.value)}>
+                  <select
+                    className={inputClass}
+                    value={selectedPatient?.id ?? ""}
+                    onChange={(event) => {
+                      setSelectedPatientId(event.target.value);
+                      setPendingDeletePatientId(null);
+                    }}
+                  >
                     {state.patients.map((patient) => (
                       <option key={patient.id} value={patient.id}>
                         {patient.name} - {patient.id}
@@ -907,6 +1008,11 @@ export default function Home() {
                     ))}
                   </select>
                 </Field>
+                {currentUser.role === "Admin" && selectedPatient && pendingDeletePatientId === selectedPatient.id ? (
+                  <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    Confirming will remove this demo patient profile and its related orders, pharmacy dispense records, medication administrations, and safety alerts. A deletion audit entry will remain.
+                  </div>
+                ) : null}
                 {selectedPatient ? <PatientSummary patient={selectedPatient} /> : <EmptyState>No patient selected.</EmptyState>}
               </div>
             </Section>
