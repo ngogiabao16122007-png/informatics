@@ -42,6 +42,7 @@ const modules = [
   { id: "ehr", label: "EHR / Admission", icon: UserPlus },
   { id: "cpoe", label: "CPOE Orders", icon: Stethoscope },
   { id: "pharmacy", label: "Pharmacy", icon: Pill },
+  { id: "patientScan", label: "Patient Scan", icon: Barcode },
   { id: "bcma", label: "BCMA", icon: Barcode },
   { id: "handover", label: "Handover", icon: Handshake },
   { id: "audit", label: "Audit", icon: FileClock }
@@ -53,15 +54,15 @@ const roleWorkspaces: Record<Role, ModuleId[]> = {
   "Ward Clerk": ["ehr"],
   Physician: ["cpoe"],
   Pharmacist: ["pharmacy"],
-  Nurse: ["bcma", "handover"],
-  Admin: ["dashboard", "workflow", "ehr", "cpoe", "pharmacy", "bcma", "handover", "audit"]
+  Nurse: ["patientScan", "bcma", "handover"],
+  Admin: ["dashboard", "workflow", "ehr", "cpoe", "pharmacy", "patientScan", "bcma", "handover", "audit"]
 };
 
 const defaultWorkspace: Record<Role, ModuleId> = {
   "Ward Clerk": "ehr",
   Physician: "cpoe",
   Pharmacist: "pharmacy",
-  Nurse: "bcma",
+  Nurse: "patientScan",
   Admin: "dashboard"
 };
 
@@ -94,6 +95,11 @@ const rolePageDescriptions: Record<Role, Partial<Record<ModuleId, RolePageDescri
     }
   },
   Nurse: {
+    patientScan: {
+      title: "Nurse Patient Identification Workspace",
+      description: "Scan or enter the wristband barcode to confirm the patient identity and review key patient details before medication administration.",
+      checkpoints: ["Patient barcode", "Matched profile", "Clinical summary"]
+    },
     bcma: {
       title: "Nurse BCMA Administration Workspace",
       description: "Scan the patient and medication barcodes, verify the Five Rights, and document administered, held, or missed medications.",
@@ -130,6 +136,11 @@ const rolePageDescriptions: Record<Role, Partial<Record<ModuleId, RolePageDescri
       title: "Admin Pharmacy Oversight",
       description: "Observe pharmacy queue decisions, dispensing status, pharmacist notes, and medication barcode generation.",
       checkpoints: ["Verification queue", "Dispense status", "Barcode tracking"]
+    },
+    patientScan: {
+      title: "Admin Patient Scan Oversight",
+      description: "Review the nurse-facing patient identification step where wristband barcode scanning opens the matched patient profile.",
+      checkpoints: ["Barcode lookup", "Patient match", "Profile review"]
     },
     bcma: {
       title: "Admin BCMA Oversight",
@@ -190,6 +201,14 @@ const demoWorkflowSteps: DemoWorkflowStep[] = [
     title: "Dispense prepared medication",
     action: "Mark the approved medication as dispensed after barcode generation.",
     result: "The order status becomes Dispensed and is ready for nurse administration."
+  },
+  {
+    id: "identify",
+    role: "Nurse",
+    moduleId: "patientScan",
+    title: "Scan patient wristband",
+    action: "Enter or scan the patient wristband barcode to identify the patient before medication administration.",
+    result: "The matched patient profile opens with allergies, current medications, labs, barcode, and recent timeline."
   },
   {
     id: "administer",
@@ -559,6 +578,7 @@ export default function Home() {
   const visibleModules = modules.filter((moduleItem) => canOpenModule(currentUser.role, moduleItem.id));
   const activeModuleAllowed = canOpenModule(currentUser.role, activeModule);
   const safeActiveModule = activeModuleAllowed ? activeModule : defaultWorkspace[currentUser.role];
+  const scannedPatient = state.patients.find((patient) => patient.barcode.trim().toLowerCase() === patientScan.trim().toLowerCase());
 
   function switchRole(userId: string) {
     const nextUser = demoUsers.find((user) => user.id === userId) ?? demoUsers[0];
@@ -616,12 +636,13 @@ export default function Home() {
       order: state.orders.length > 0,
       verify: state.orders.some((order) => ["Approved", "Dispensed", "Administered", "Missed/Held"].includes(order.status)),
       dispense: state.orders.some((order) => ["Dispensed", "Administered", "Missed/Held"].includes(order.status)),
+      identify: Boolean(scannedPatient),
       administer: state.orders.some((order) => order.status === "Administered" || order.status === "Missed/Held"),
       document: state.administrations.length > 0,
       handover: state.auditEvents.some((event) => event.actionType === "Handover viewed" || event.actionType === "Handover note added"),
       audit: state.auditEvents.length > 0
     }),
-    [state]
+    [scannedPatient, state]
   );
 
   const activeOrdersForPatient = (patientId: string) =>
@@ -853,7 +874,6 @@ export default function Home() {
 
   const fiveRights = useMemo(() => evaluateFiveRights(state, patientScan, medicationScan), [state, patientScan, medicationScan]);
   const scannedOrder = state.orders.find((order) => order.doseBarcode?.trim().toLowerCase() === medicationScan.trim().toLowerCase());
-  const scannedPatient = state.patients.find((patient) => patient.barcode.trim().toLowerCase() === patientScan.trim().toLowerCase());
   const fiveRightsPass = fiveRights.rightPatient && fiveRights.rightDrug && fiveRights.rightDose && fiveRights.rightRoute && fiveRights.rightTime;
 
   function recordAdministration(status: AdministrationStatus) {
@@ -1324,6 +1344,60 @@ export default function Home() {
               })}
             </div>
           </Section>
+        ) : null}
+
+        {safeActiveModule === "patientScan" ? (
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
+            <Section title="Patient Barcode Scan" icon={Barcode}>
+              <div className="grid gap-4">
+                <Field label="Patient wristband barcode">
+                  <input
+                    className={inputClass}
+                    placeholder="WRIST-PAT-..."
+                    value={patientScan}
+                    onChange={(event) => setPatientScan(event.target.value)}
+                  />
+                </Field>
+                <div className="grid gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Quick patient scan</p>
+                  <div className="flex flex-wrap gap-2">
+                    {state.patients.map((patient) => (
+                      <button
+                        key={patient.id}
+                        type="button"
+                        onClick={() => setPatientScan(patient.barcode)}
+                        className="rounded-md border border-clinical-line bg-white px-3 py-2 text-xs font-semibold hover:bg-clinical-panel"
+                      >
+                        {patient.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className={`rounded-md border p-4 text-sm ${scannedPatient ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                  {scannedPatient
+                    ? `Matched ${scannedPatient.name}. Review the patient details before moving to BCMA.`
+                    : "No patient matched this barcode. Scan or enter a valid wristband barcode."}
+                </div>
+                {scannedPatient ? (
+                  <button
+                    type="button"
+                    onClick={() => setActiveModule("bcma")}
+                    className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-md bg-clinical-blue px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    <Barcode className="h-4 w-4" aria-hidden="true" />
+                    Continue to BCMA
+                  </button>
+                ) : null}
+              </div>
+            </Section>
+            <Section title="Identified Patient Details" icon={Hospital}>
+              {scannedPatient ? (
+                <PatientSummary patient={scannedPatient} />
+              ) : (
+                <EmptyState>Scan a patient wristband barcode to view patient details.</EmptyState>
+              )}
+            </Section>
+          </div>
         ) : null}
 
         {safeActiveModule === "bcma" ? (
