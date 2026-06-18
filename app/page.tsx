@@ -47,6 +47,22 @@ const modules = [
 
 type ModuleId = (typeof modules)[number]["id"];
 
+const roleWorkspaces: Record<Role, ModuleId[]> = {
+  "Ward Clerk": ["ehr"],
+  Physician: ["cpoe"],
+  Pharmacist: ["pharmacy"],
+  Nurse: ["bcma", "handover"],
+  Admin: ["dashboard", "ehr", "cpoe", "pharmacy", "bcma", "handover", "audit"]
+};
+
+const defaultWorkspace: Record<Role, ModuleId> = {
+  "Ward Clerk": "ehr",
+  Physician: "cpoe",
+  Pharmacist: "pharmacy",
+  Nurse: "bcma",
+  Admin: "dashboard"
+};
+
 const emptyAdmissionForm = {
   name: "",
   dateOfBirth: "",
@@ -136,6 +152,10 @@ function createAuditEvent(
 
 function canUse(currentRole: Role, expected: Role): boolean {
   return currentRole === expected || currentRole === "Admin";
+}
+
+function canOpenModule(role: Role, moduleId: ModuleId): boolean {
+  return roleWorkspaces[role].includes(moduleId);
 }
 
 function statusClasses(status: OrderStatus): string {
@@ -248,7 +268,7 @@ export default function Home() {
   const [state, setState] = useState<DemoState>(seedState);
   const [hydrated, setHydrated] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(demoUsers[0].id);
-  const [activeModule, setActiveModule] = useState<ModuleId>("dashboard");
+  const [activeModule, setActiveModule] = useState<ModuleId>(defaultWorkspace[demoUsers[0].role]);
   const [selectedPatientId, setSelectedPatientId] = useState(seedState.patients[0]?.id ?? "");
   const [admissionForm, setAdmissionForm] = useState(emptyAdmissionForm);
   const [orderForm, setOrderForm] = useState({ ...emptyOrderForm, patientId: seedState.patients[0]?.id ?? "" });
@@ -264,6 +284,15 @@ export default function Home() {
   const currentUser = demoUsers.find((user) => user.id === currentUserId) ?? demoUsers[0];
   const selectedPatient = state.patients.find((patient) => patient.id === selectedPatientId) ?? state.patients[0];
   const handoverPatient = state.patients.find((patient) => patient.id === handoverPatientId) ?? state.patients[0];
+  const visibleModules = modules.filter((moduleItem) => canOpenModule(currentUser.role, moduleItem.id));
+  const activeModuleAllowed = canOpenModule(currentUser.role, activeModule);
+  const safeActiveModule = activeModuleAllowed ? activeModule : defaultWorkspace[currentUser.role];
+
+  function switchRole(userId: string) {
+    const nextUser = demoUsers.find((user) => user.id === userId) ?? demoUsers[0];
+    setCurrentUserId(nextUser.id);
+    setActiveModule(defaultWorkspace[nextUser.role]);
+  }
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
@@ -287,6 +316,12 @@ export default function Home() {
       window.localStorage.setItem(storageKey, JSON.stringify(state));
     }
   }, [hydrated, state]);
+
+  useEffect(() => {
+    if (!activeModuleAllowed) {
+      setActiveModule(defaultWorkspace[currentUser.role]);
+    }
+  }, [activeModuleAllowed, currentUser.role]);
 
   const dashboard = useMemo(() => {
     const pendingOrders = state.orders.filter((order) => order.status === "Ordered" || order.status === "Pharmacy Review").length;
@@ -618,6 +653,7 @@ export default function Home() {
     setPatientScan(seedState.patients[0]?.barcode ?? "");
     setMedicationScan("");
     setHandoverPatientId(seedState.patients[0]?.id ?? "");
+    setActiveModule(defaultWorkspace[currentUser.role]);
   }
 
   return (
@@ -637,7 +673,7 @@ export default function Home() {
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
               <Field label="Demo role">
-                <select className={inputClass} value={currentUserId} onChange={(event) => setCurrentUserId(event.target.value)}>
+                <select className={inputClass} value={currentUserId} onChange={(event) => switchRole(event.target.value)}>
                   {demoUsers.map((user) => (
                     <option key={user.id} value={user.id}>
                       {user.role} - {user.name}
@@ -657,9 +693,9 @@ export default function Home() {
             </div>
           </div>
           <nav className="flex gap-2 overflow-x-auto pb-1" aria-label="Workflow modules">
-            {modules.map((item) => {
+            {visibleModules.map((item) => {
               const Icon = item.icon;
-              const active = activeModule === item.id;
+              const active = safeActiveModule === item.id;
               return (
                 <button
                   key={item.id}
@@ -681,7 +717,7 @@ export default function Home() {
       </header>
 
       <div className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
-        {activeModule === "dashboard" ? (
+        {safeActiveModule === "dashboard" ? (
           <div className="grid gap-5">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
               <StatTile label="Total patients" value={dashboard.totalPatients} icon={Hospital} />
@@ -702,7 +738,7 @@ export default function Home() {
           </div>
         ) : null}
 
-        {activeModule === "ehr" ? (
+        {safeActiveModule === "ehr" ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <Section title="Admission" icon={UserPlus}>
               <form onSubmit={createPatient} className="grid gap-4">
@@ -765,7 +801,7 @@ export default function Home() {
           </div>
         ) : null}
 
-        {activeModule === "cpoe" ? (
+        {safeActiveModule === "cpoe" ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
             <Section title="Physician Order Entry" icon={Stethoscope}>
               <form onSubmit={submitOrder} className="grid gap-4">
@@ -823,7 +859,7 @@ export default function Home() {
           </div>
         ) : null}
 
-        {activeModule === "pharmacy" ? (
+        {safeActiveModule === "pharmacy" ? (
           <Section title="Pharmacy Verification and Dispensing" icon={Pill}>
             <div className="grid gap-4">
               {state.orders.length === 0 ? <EmptyState>No medication orders yet.</EmptyState> : null}
@@ -894,7 +930,7 @@ export default function Home() {
           </Section>
         ) : null}
 
-        {activeModule === "bcma" ? (
+        {safeActiveModule === "bcma" ? (
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
             <Section title="Barcode Scanning" icon={Barcode}>
               <div className="grid gap-4">
@@ -960,7 +996,7 @@ export default function Home() {
           </div>
         ) : null}
 
-        {activeModule === "handover" ? (
+        {safeActiveModule === "handover" ? (
           <Section title="Handover Support" icon={Handshake}>
             {handoverPatient ? (
               <div className="grid gap-5">
@@ -1015,7 +1051,7 @@ export default function Home() {
           </Section>
         ) : null}
 
-        {activeModule === "audit" ? (
+        {safeActiveModule === "audit" ? (
           <Section title="Audit Trail" icon={FileClock}>
             <AuditTable events={state.auditEvents.slice().reverse()} patients={state.patients} orders={state.orders} />
           </Section>
