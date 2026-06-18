@@ -3,11 +3,11 @@ const now = "2026-06-18T02:00:00.000Z";
 const firstDoseTime = "2026-06-18T11:00:00.000Z";
 
 export const demoUsers: User[] = [
-  { id: "user-clerk", name: "Maya Tran", role: "Ward Clerk" },
-  { id: "user-physician", name: "Dr. Lena Ortiz", role: "Physician" },
-  { id: "user-pharmacist", name: "Noah Chen, PharmD", role: "Pharmacist" },
-  { id: "user-nurse", name: "Ari Patel, RN", role: "Nurse" },
-  { id: "user-admin", name: "Sam Rivera", role: "Admin" }
+  { id: "user-clerk", name: "Bùi Nguyệt Tú", role: "Ward Clerk" },
+  { id: "user-physician", name: "Lee Chee", role: "Physician" },
+  { id: "user-pharmacist", name: "Minhh Ann", role: "Pharmacist" },
+  { id: "user-nurse", name: "Linh Phạm", role: "Nurse" },
+  { id: "user-admin", name: "Ngô Gia Bảo", role: "Admin" }
 ];
 
 export const seedState: DemoState = {
@@ -32,13 +32,13 @@ export const seedState: DemoState = {
       ],
       createdAt: now,
       updatedAt: now,
-      createdBy: "Maya Tran",
+      createdBy: "Bùi Nguyệt Tú",
       timeline: [
         {
           id: "TL-1001-A",
           timestamp: now,
           role: "Ward Clerk",
-          userName: "Maya Tran",
+          userName: "Bùi Nguyệt Tú",
           description: "Patient admitted and wristband barcode generated."
         }
       ]
@@ -62,13 +62,13 @@ export const seedState: DemoState = {
       ],
       createdAt: now,
       updatedAt: now,
-      createdBy: "Maya Tran",
+      createdBy: "Bùi Nguyệt Tú",
       timeline: [
         {
           id: "TL-1002-A",
           timestamp: now,
           role: "Ward Clerk",
-          userName: "Maya Tran",
+          userName: "Bùi Nguyệt Tú",
           description: "Patient admitted and profile created."
         }
       ]
@@ -79,11 +79,11 @@ export const seedState: DemoState = {
       id: "ORD-2001",
       patientId: "PAT-1001",
       physicianId: "user-physician",
-      physicianName: "Dr. Lena Ortiz",
+      physicianName: "Lee Chee",
       drugName: "Digoxin",
       dose: "0.125 mg",
-      route: "PO",
-      frequency: "Daily",
+      route: "Oral",
+      frequency: "Once daily",
       scheduledTime: firstDoseTime,
       notes: "Demo order intentionally triggers potassium and interaction checks.",
       status: "Pharmacy Review",
@@ -119,7 +119,7 @@ export const seedState: DemoState = {
       id: "AUD-4001",
       timestamp: now,
       userId: "user-clerk",
-      userName: "Maya Tran",
+      userName: "Bùi Nguyệt Tú",
       role: "Ward Clerk",
       actionType: "Patient created",
       patientId: "PAT-1001",
@@ -129,18 +129,18 @@ export const seedState: DemoState = {
       id: "AUD-4002",
       timestamp: now,
       userId: "user-physician",
-      userName: "Dr. Lena Ortiz",
+      userName: "Lee Chee",
       role: "Physician",
       actionType: "Order submitted",
       patientId: "PAT-1001",
       orderId: "ORD-2001",
-      description: "Submitted Digoxin 0.125 mg PO Daily for pharmacy review."
+      description: "Submitted Digoxin 0.125 mg oral once daily for pharmacy review."
     },
     {
       id: "AUD-4003",
       timestamp: now,
       userId: "user-physician",
-      userName: "Dr. Lena Ortiz",
+      userName: "Lee Chee",
       role: "Physician",
       actionType: "Alert generated",
       patientId: "PAT-1001",

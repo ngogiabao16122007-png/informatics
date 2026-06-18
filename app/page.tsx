@@ -225,6 +225,28 @@ const demoWorkflowSteps: DemoWorkflowStep[] = [
   }
 ];
 
+const legacyNameMap: Record<string, string> = {
+  "Maya Tran": "Bùi Nguyệt Tú",
+  "Dr. Lena Ortiz": "Lee Chee",
+  "Noah Chen, PharmD": "Minhh Ann",
+  "Ari Patel, RN": "Linh Phạm",
+  "Sam Rivera": "Ngô Gia Bảo"
+};
+
+const routeTextMap: Record<string, string> = {
+  PO: "Oral",
+  IV: "Intravenous",
+  IM: "Intramuscular",
+  SC: "Subcutaneous"
+};
+
+const frequencyTextMap: Record<string, string> = {
+  Daily: "Once daily",
+  BID: "Twice daily",
+  TID: "Three times daily",
+  Q6H: "Every 6 hours"
+};
+
 const emptyAdmissionForm = {
   name: "",
   dateOfBirth: "",
@@ -243,8 +265,8 @@ const emptyOrderForm = {
   patientId: "",
   drugName: "",
   dose: "",
-  route: "PO",
-  frequency: "Daily",
+  route: "Oral",
+  frequency: "Once daily",
   scheduledTime: "2026-06-18T09:00",
   notes: ""
 };
@@ -259,6 +281,62 @@ function splitList(value: string): string[] {
 function formText(formData: FormData, name: string): string {
   const value = formData.get(name);
   return typeof value === "string" ? value : "";
+}
+
+function replaceLegacyText(value: string): string {
+  return Object.entries(legacyNameMap).reduce((text, [legacy, next]) => text.replaceAll(legacy, next), value);
+}
+
+function normalizeRoute(value: string): string {
+  return routeTextMap[value] ?? value;
+}
+
+function normalizeFrequency(value: string): string {
+  return frequencyTextMap[value] ?? value;
+}
+
+function migrateDemoState(savedState: DemoState): DemoState {
+  return {
+    ...savedState,
+    patients: savedState.patients.map((patient) => ({
+      ...patient,
+      createdBy: replaceLegacyText(patient.createdBy),
+      timeline: patient.timeline.map((event) => ({
+        ...event,
+        userName: replaceLegacyText(event.userName),
+        description: replaceLegacyText(event.description)
+      }))
+    })),
+    orders: savedState.orders.map((order) => ({
+      ...order,
+      physicianName: replaceLegacyText(order.physicianName),
+      route: normalizeRoute(order.route),
+      frequency: normalizeFrequency(order.frequency)
+    })),
+    dispenses: savedState.dispenses.map((dispense) => ({
+      ...dispense,
+      preparedBy: replaceLegacyText(dispense.preparedBy)
+    })),
+    administrations: savedState.administrations.map((administration) => ({
+      ...administration,
+      nurseName: replaceLegacyText(administration.nurseName)
+    })),
+    auditEvents: savedState.auditEvents.map((event) => ({
+      ...event,
+      userName: replaceLegacyText(event.userName),
+      description: replaceLegacyText(event.description)
+        .replaceAll(" PO Daily", " oral once daily")
+        .replaceAll(" PO ", " oral ")
+        .replaceAll(" IV ", " intravenous ")
+        .replaceAll(" IM ", " intramuscular ")
+        .replaceAll(" SC ", " subcutaneous ")
+    })),
+    handoverNotes: savedState.handoverNotes.map((event) => ({
+      ...event,
+      userName: replaceLegacyText(event.userName),
+      description: replaceLegacyText(event.description)
+    }))
+  };
 }
 
 function calculateAge(dateOfBirth: string): number {
@@ -445,9 +523,9 @@ function RoleDescriptionPanel({
           <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{description.title}</h2>
           <p className="mt-2 text-sm leading-6 text-clinical-muted">{description.description}</p>
         </div>
-        <div className="flex flex-wrap gap-2 lg:max-w-md lg:justify-end">
+        <div className="grid w-full grid-cols-3 gap-2 lg:max-w-xl">
           {description.checkpoints.map((checkpoint) => (
-            <span key={checkpoint} className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-xs font-semibold text-teal-800">
+            <span key={checkpoint} className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-center text-xs font-semibold text-teal-800">
               {checkpoint}
             </span>
           ))}
@@ -493,7 +571,7 @@ export default function Home() {
     const saved = window.localStorage.getItem(storageKey);
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as DemoState;
+        const parsed = migrateDemoState(JSON.parse(saved) as DemoState);
         setState(parsed);
         setSelectedPatientId(parsed.patients[0]?.id ?? "");
         setOrderForm((form) => ({ ...form, patientId: parsed.patients[0]?.id ?? "" }));
@@ -1142,19 +1220,19 @@ export default function Home() {
                   </Field>
                   <Field label="Route" required>
                     <select name="route" className={inputClass} value={orderForm.route} onChange={(event) => setOrderForm({ ...orderForm, route: event.target.value })}>
-                      <option>PO</option>
-                      <option>IV</option>
-                      <option>IM</option>
-                      <option>SC</option>
+                      <option>Oral</option>
+                      <option>Intravenous</option>
+                      <option>Intramuscular</option>
+                      <option>Subcutaneous</option>
                       <option>Topical</option>
                     </select>
                   </Field>
                   <Field label="Frequency">
                     <select name="frequency" className={inputClass} value={orderForm.frequency} onChange={(event) => setOrderForm({ ...orderForm, frequency: event.target.value })}>
-                      <option>Daily</option>
-                      <option>BID</option>
-                      <option>TID</option>
-                      <option>Q6H</option>
+                      <option>Once daily</option>
+                      <option>Twice daily</option>
+                      <option>Three times daily</option>
+                      <option>Every 6 hours</option>
                       <option>Once</option>
                     </select>
                   </Field>
@@ -1407,7 +1485,7 @@ function DemoWorkflowGuide({
       <Section title="Full Demo Script" icon={ClipboardList}>
         <div className="grid gap-4">
           <div className="grid gap-3 md:grid-cols-3">
-            <InfoBlock title="Workflow coverage" value={`${completedCount} of ${steps.length} steps have demo evidence`} />
+            <InfoBlock title="Workflow progress" value={`${completedCount} of ${steps.length} steps completed`} />
             <InfoBlock title="Starting role" value="Ward Clerk" />
             <InfoBlock title="Final review" value="Admin audit trail" />
           </div>
@@ -1420,8 +1498,6 @@ function DemoWorkflowGuide({
       <div className="grid gap-4">
         {steps.map((step, index) => {
           const moduleLabel = modules.find((moduleItem) => moduleItem.id === step.moduleId)?.label ?? step.moduleId;
-          const complete = statuses[step.id];
-
           return (
             <section key={step.id} className="rounded-lg border border-clinical-line bg-white p-5 shadow-soft">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1429,9 +1505,6 @@ function DemoWorkflowGuide({
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className="border-clinical-line bg-clinical-panel text-clinical-muted">Step {index + 1}</Badge>
                     <Badge className="border-blue-200 bg-blue-50 text-blue-800">{step.role}</Badge>
-                    <Badge className={complete ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-800"}>
-                      {complete ? "Evidence present" : "Needs demo action"}
-                    </Badge>
                   </div>
                   <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{step.title}</h2>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
