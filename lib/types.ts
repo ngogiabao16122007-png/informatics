@@ -22,20 +22,49 @@ export type PatientTimelineEvent = {
   description: string;
 };
 
+export type ContactInfo = {
+  phone: string;
+  email: string;
+  address: string;
+};
+
+export type MedicationHistoryItem = {
+  name: string;
+  dose: string;
+  duration: string;
+};
+
 export type Patient = {
   id: string;
   barcode: string;
+  admissionType: "New admission" | "Re-admitted patient";
   name: string;
   dateOfBirth: string;
   age: number;
+  gender: string;
+  nationality: string;
+  citizenId: string;
+  ethnicity: string;
+  bloodType: string;
+  heightCm: number;
+  occupation: string;
   allergies: string[];
   adverseDrugReactions: string[];
   pastMedicalHistory: string[];
+  priorDisorders: string[];
+  recentHistory: string;
+  reasonForVisit: string;
   currentMedications: string[];
   homeMedications: string[];
+  currentMedicationDetails: MedicationHistoryItem[];
+  homeMedicationDetails: MedicationHistoryItem[];
   weightKg: number;
   renalFunction: number;
   labs: LabResult[];
+  patientContact: ContactInfo;
+  emergencyContact: ContactInfo;
+  insuranceLink: string;
+  screeningImages: string[];
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -73,6 +102,8 @@ export type MedicationOrder = {
   route: string;
   frequency: string;
   scheduledTime: string;
+  scheduledTimes?: string[];
+  scheduleDisplay?: string;
   notes: string;
   status: OrderStatus;
   alertIds: string[];
@@ -87,6 +118,11 @@ export type PharmacyDispense = {
   patientId: string;
   orderId: string;
   medicationBarcode: string;
+  doseTaken?: string;
+  packageType?: "Full box" | "Individual bag";
+  customDose?: string;
+  scannedBarcode?: string;
+  createdBy?: string;
   preparedBy: string;
   preparedAt: string;
   dispensedAt?: string;
@@ -130,6 +166,7 @@ export type AuditEvent = {
     | "Alert generated"
     | "Pharmacy approved"
     | "Pharmacy rejected"
+    | "Medication barcode generated"
     | "Medication dispensed"
     | "Medication administered"
     | "Medication held"

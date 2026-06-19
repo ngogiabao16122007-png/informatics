@@ -15,14 +15,33 @@ export const seedState: DemoState = {
     {
       id: "PAT-1001",
       barcode: "WRIST-PAT-1001-7KQ2",
+      admissionType: "New admission",
       name: "Jordan Ellis",
       dateOfBirth: "1972-04-18",
       age: 54,
+      gender: "Male",
+      nationality: "United States",
+      citizenId: "P-4589210",
+      ethnicity: "Not recorded",
+      bloodType: "O+",
+      heightCm: 178,
+      occupation: "Teacher",
       allergies: ["Penicillin"],
       adverseDrugReactions: ["Rash with amoxicillin"],
       pastMedicalHistory: ["Heart failure", "Type 2 diabetes"],
+      priorDisorders: ["Heart failure", "Type 2 diabetes"],
+      recentHistory: "Shortness of breath and ankle swelling worsened over 3 days before admission.",
+      reasonForVisit: "Worsening dyspnea and fluid retention.",
       currentMedications: ["Furosemide", "Metformin"],
       homeMedications: ["Lisinopril", "Atorvastatin"],
+      currentMedicationDetails: [
+        { name: "Furosemide", dose: "40 mg", duration: "6 months" },
+        { name: "Metformin", dose: "500 mg", duration: "2 years" }
+      ],
+      homeMedicationDetails: [
+        { name: "Lisinopril", dose: "10 mg", duration: "1 year" },
+        { name: "Atorvastatin", dose: "20 mg", duration: "18 months" }
+      ],
       weightKg: 82,
       renalFunction: 38,
       labs: [
@@ -30,6 +49,18 @@ export const seedState: DemoState = {
         { name: "Creatinine", value: 1.7, unit: "mg/dL", flag: "high", collectedAt: now },
         { name: "INR", value: 1.1, unit: "", flag: "normal", collectedAt: now }
       ],
+      patientContact: {
+        phone: "+84 090 100 1001",
+        email: "jordan.ellis@example.com",
+        address: "12 Nguyen Hue, District 1, Ho Chi Minh City"
+      },
+      emergencyContact: {
+        phone: "+84 090 200 2002",
+        email: "taylor.ellis@example.com",
+        address: "12 Nguyen Hue, District 1, Ho Chi Minh City"
+      },
+      insuranceLink: "https://demo.local/past-ehr/jordan-ellis",
+      screeningImages: [],
       createdAt: now,
       updatedAt: now,
       createdBy: "Bùi Nguyệt Tú",
@@ -46,20 +77,45 @@ export const seedState: DemoState = {
     {
       id: "PAT-1002",
       barcode: "WRIST-PAT-1002-P4M8",
+      admissionType: "Re-admitted patient",
       name: "Casey Morgan",
       dateOfBirth: "1989-11-02",
       age: 36,
+      gender: "Female",
+      nationality: "Vietnam",
+      citizenId: "079089001234",
+      ethnicity: "Kinh",
+      bloodType: "A+",
+      heightCm: 164,
+      occupation: "Office worker",
       allergies: ["Sulfa"],
       adverseDrugReactions: ["Nausea with codeine"],
       pastMedicalHistory: ["Asthma"],
+      priorDisorders: ["Asthma"],
+      recentHistory: "Returned with wheezing after viral symptoms and increased rescue inhaler use.",
+      reasonForVisit: "Asthma flare after recent respiratory infection.",
       currentMedications: ["Albuterol"],
       homeMedications: ["Cetirizine"],
+      currentMedicationDetails: [{ name: "Albuterol", dose: "2 puffs", duration: "As needed for 5 years" }],
+      homeMedicationDetails: [{ name: "Cetirizine", dose: "10 mg", duration: "Seasonal use" }],
       weightKg: 68,
       renalFunction: 91,
       labs: [
         { name: "Potassium", value: 4.1, unit: "mmol/L", flag: "normal", collectedAt: now },
         { name: "Creatinine", value: 0.8, unit: "mg/dL", flag: "normal", collectedAt: now }
       ],
+      patientContact: {
+        phone: "+84 090 300 3003",
+        email: "casey.morgan@example.com",
+        address: "22 Le Loi, District 3, Ho Chi Minh City"
+      },
+      emergencyContact: {
+        phone: "+84 090 400 4004",
+        email: "parent.morgan@example.com",
+        address: "22 Le Loi, District 3, Ho Chi Minh City"
+      },
+      insuranceLink: "https://demo.local/past-ehr/casey-morgan",
+      screeningImages: [],
       createdAt: now,
       updatedAt: now,
       createdBy: "Bùi Nguyệt Tú",

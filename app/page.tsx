@@ -9,23 +9,29 @@ import {
   FileClock,
   Handshake,
   Hospital,
+  Image as ImageIcon,
   Pill,
+  PlusCircle,
   RefreshCw,
   ShieldCheck,
   Stethoscope,
   Trash2,
+  Upload,
   UserPlus
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import NextImage from "next/image";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { formatDate, formatDateTime, makeId } from "../lib/ids";
 import { runDemoSafetyChecks } from "../lib/safety";
 import { demoUsers, seedState } from "../lib/seed";
 import {
   AdministrationStatus,
   AuditEvent,
+  ContactInfo,
   DemoState,
   FiveRightsResult,
   MedicationOrder,
+  MedicationHistoryItem,
   OrderStatus,
   Patient,
   PatientTimelineEvent,
@@ -267,27 +273,75 @@ const frequencyTextMap: Record<string, string> = {
 };
 
 const emptyAdmissionForm = {
+  admissionType: "New admission",
+  readmissionBarcode: "",
   name: "",
   dateOfBirth: "",
+  gender: "",
+  nationality: "",
+  citizenId: "",
+  ethnicity: "",
+  bloodType: "",
+  heightCm: "170",
+  occupation: "",
+  reasonForVisit: "",
   allergies: "",
   adverseDrugReactions: "",
   pastMedicalHistory: "",
+  priorDisorders: "",
+  recentHistory: "",
   currentMedications: "",
   homeMedications: "",
   weightKg: "70",
   renalFunction: "90",
   potassium: "4.0",
-  creatinine: "0.9"
+  creatinine: "0.9",
+  patientPhone: "",
+  patientEmail: "",
+  patientAddress: "",
+  emergencyPhone: "",
+  emergencyEmail: "",
+  emergencyAddress: "",
+  insuranceLink: ""
 };
+
+type OrderDraft = {
+  id: string;
+  drugName: string;
+  dose: string;
+  route: string;
+  frequency: string;
+  customFrequency: string;
+  scheduledStartDate: string;
+  scheduledEndDate: string;
+  scheduledTimes: string;
+  notes: string;
+};
+
+function todayInput(): string {
+  const local = new Date(Date.now() - new Date().getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function createOrderDraft(): OrderDraft {
+  const today = todayInput();
+  return {
+    id: makeId("DRF"),
+    drugName: "",
+    dose: "",
+    route: "Oral",
+    frequency: "Once daily",
+    customFrequency: "",
+    scheduledStartDate: today,
+    scheduledEndDate: today,
+    scheduledTimes: "09:00",
+    notes: ""
+  };
+}
 
 const emptyOrderForm = {
   patientId: "",
-  drugName: "",
-  dose: "",
-  route: "Oral",
-  frequency: "Once daily",
-  scheduledTime: "2026-06-18T09:00",
-  notes: ""
+  items: [createOrderDraft()]
 };
 
 function splitList(value: string): string[] {
@@ -295,6 +349,20 @@ function splitList(value: string): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseMedicationDetails(value: string): MedicationHistoryItem[] {
+  return splitLines(value).map((line) => {
+    const [name = "", dose = "", duration = ""] = line.split("|").map((part) => part.trim());
+    return { name, dose, duration };
+  });
 }
 
 function formText(formData: FormData, name: string): string {
@@ -314,23 +382,62 @@ function normalizeFrequency(value: string): string {
   return frequencyTextMap[value] ?? value;
 }
 
+function fallbackContact(): ContactInfo {
+  return { phone: "", email: "", address: "" };
+}
+
+function fallbackMedicationDetails(values: string[]): MedicationHistoryItem[] {
+  return values.map((name) => ({ name, dose: "", duration: "" }));
+}
+
+function normalizePatient(patient: Patient): Patient {
+  const currentMedicationDetails = patient.currentMedicationDetails ?? fallbackMedicationDetails(patient.currentMedications ?? []);
+  const homeMedicationDetails = patient.homeMedicationDetails ?? fallbackMedicationDetails(patient.homeMedications ?? []);
+
+  return {
+    ...patient,
+    admissionType: patient.admissionType ?? "New admission",
+    gender: patient.gender ?? "",
+    nationality: patient.nationality ?? "",
+    citizenId: patient.citizenId ?? "",
+    ethnicity: patient.ethnicity ?? "",
+    bloodType: patient.bloodType ?? "",
+    heightCm: patient.heightCm ?? 0,
+    occupation: patient.occupation ?? "",
+    reasonForVisit: patient.reasonForVisit ?? "",
+    priorDisorders: patient.priorDisorders ?? patient.pastMedicalHistory ?? [],
+    recentHistory: patient.recentHistory ?? "",
+    currentMedicationDetails,
+    homeMedicationDetails,
+    patientContact: patient.patientContact ?? fallbackContact(),
+    emergencyContact: patient.emergencyContact ?? fallbackContact(),
+    insuranceLink: patient.insuranceLink ?? "",
+    screeningImages: patient.screeningImages ?? []
+  };
+}
+
 function migrateDemoState(savedState: DemoState): DemoState {
   return {
     ...savedState,
-    patients: savedState.patients.map((patient) => ({
-      ...patient,
+    patients: savedState.patients.map((patient) => {
+      const normalizedPatient = normalizePatient(patient);
+      return {
+      ...normalizedPatient,
       createdBy: replaceLegacyText(patient.createdBy),
-      timeline: patient.timeline.map((event) => ({
+      timeline: normalizedPatient.timeline.map((event) => ({
         ...event,
         userName: replaceLegacyText(event.userName),
         description: replaceLegacyText(event.description)
       }))
-    })),
+    };
+    }),
     orders: savedState.orders.map((order) => ({
       ...order,
       physicianName: replaceLegacyText(order.physicianName),
       route: normalizeRoute(order.route),
-      frequency: normalizeFrequency(order.frequency)
+      frequency: normalizeFrequency(order.frequency),
+      scheduledTimes: order.scheduledTimes ?? [order.scheduledTime],
+      scheduleDisplay: order.scheduleDisplay ?? formatDateTime(order.scheduledTime)
     })),
     dispenses: savedState.dispenses.map((dispense) => ({
       ...dispense,
@@ -369,13 +476,47 @@ function calculateAge(dateOfBirth: string): number {
   return Number.isFinite(age) ? age : 0;
 }
 
-function localDateTimeInput(date = new Date()): string {
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16);
+function toIsoFromDateAndTime(date: string, time: string): string {
+  return new Date(`${date}T${time}`).toISOString();
 }
 
-function toIsoFromLocalInput(value: string): string {
-  return new Date(value).toISOString();
+function addDays(date: Date, days: number): Date {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function datesBetween(startDate: string, endDate: string): string[] {
+  if (!startDate) return [];
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate || startDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+
+  const dates: string[] = [];
+  const finalDate = end < start ? start : end;
+  for (let current = start; current <= finalDate; current = addDays(current, 1)) {
+    dates.push(current.toISOString().slice(0, 10));
+  }
+  return dates;
+}
+
+function parseScheduledTimes(value: string): string[] {
+  return value
+    .split(/,|;|\n|&/)
+    .map((time) => time.trim())
+    .filter(Boolean);
+}
+
+function buildScheduledTimes(draft: OrderDraft): string[] {
+  const dates = datesBetween(draft.scheduledStartDate, draft.scheduledEndDate);
+  const times = parseScheduledTimes(draft.scheduledTimes);
+  return dates.flatMap((date) => times.map((time) => toIsoFromDateAndTime(date, time)));
+}
+
+function formatScheduleList(values: string[]): string {
+  if (values.length === 0) return "No schedule";
+  if (values.length <= 4) return values.map(formatDateTime).join(", ");
+  return `${values.slice(0, 4).map(formatDateTime).join(", ")} and ${values.length - 4} more`;
 }
 
 function createTimelineEvent(user: User, description: string, timestamp = new Date().toISOString()): PatientTimelineEvent {
@@ -542,9 +683,9 @@ function RoleDescriptionPanel({
           <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{description.title}</h2>
           <p className="mt-2 text-sm leading-6 text-clinical-muted">{description.description}</p>
         </div>
-        <div className="grid w-full grid-cols-3 gap-2 lg:max-w-xl">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-xl">
           {description.checkpoints.map((checkpoint) => (
-            <span key={checkpoint} className="rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-center text-xs font-semibold text-teal-800">
+            <span key={checkpoint} className="flex min-h-9 items-center justify-center rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-center text-xs font-semibold text-teal-800">
               {checkpoint}
             </span>
           ))}
@@ -565,20 +706,27 @@ export default function Home() {
   const [orderError, setOrderError] = useState("");
   const [admissionError, setAdmissionError] = useState("");
   const [pharmacyNotes, setPharmacyNotes] = useState<Record<string, string>>({});
+  const [dispensingForms, setDispensingForms] = useState<Record<string, { doseTaken: string; packageType: "Full box" | "Individual bag"; customDose: string; scanBarcode: string }>>({});
   const [patientScan, setPatientScan] = useState(seedState.patients[0]?.barcode ?? "");
+  const [patientScanImage, setPatientScanImage] = useState("");
+  const [patientScanImageName, setPatientScanImageName] = useState("");
+  const [admissionScreeningImages, setAdmissionScreeningImages] = useState<string[]>([]);
   const [medicationScan, setMedicationScan] = useState("");
   const [administrationNote, setAdministrationNote] = useState("");
-  const [handoverPatientId, setHandoverPatientId] = useState(seedState.patients[0]?.id ?? "");
+  const [handoverBarcode, setHandoverBarcode] = useState(seedState.patients[0]?.barcode ?? "");
+  const [handoverTo, setHandoverTo] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
   const [pendingDeletePatientId, setPendingDeletePatientId] = useState<string | null>(null);
 
   const currentUser = demoUsers.find((user) => user.id === currentUserId) ?? demoUsers[0];
   const selectedPatient = state.patients.find((patient) => patient.id === selectedPatientId) ?? state.patients[0];
-  const handoverPatient = state.patients.find((patient) => patient.id === handoverPatientId) ?? state.patients[0];
+  const handoverPatient = state.patients.find((patient) => patient.barcode.trim().toLowerCase() === handoverBarcode.trim().toLowerCase());
   const visibleModules = modules.filter((moduleItem) => canOpenModule(currentUser.role, moduleItem.id));
   const activeModuleAllowed = canOpenModule(currentUser.role, activeModule);
   const safeActiveModule = activeModuleAllowed ? activeModule : defaultWorkspace[currentUser.role];
   const scannedPatient = state.patients.find((patient) => patient.barcode.trim().toLowerCase() === patientScan.trim().toLowerCase());
+  const readmissionPatient = state.patients.find((patient) => patient.barcode.trim().toLowerCase() === admissionForm.readmissionBarcode.trim().toLowerCase());
+  const selectedOrderPatient = state.patients.find((patient) => patient.id === orderForm.patientId);
 
   function switchRole(userId: string) {
     const nextUser = demoUsers.find((user) => user.id === userId) ?? demoUsers[0];
@@ -596,7 +744,7 @@ export default function Home() {
         setSelectedPatientId(parsed.patients[0]?.id ?? "");
         setOrderForm((form) => ({ ...form, patientId: parsed.patients[0]?.id ?? "" }));
         setPatientScan(parsed.patients[0]?.barcode ?? "");
-        setHandoverPatientId(parsed.patients[0]?.id ?? "");
+        setHandoverBarcode(parsed.patients[0]?.barcode ?? "");
       } catch {
         window.localStorage.removeItem(storageKey);
       }
@@ -648,6 +796,27 @@ export default function Home() {
   const activeOrdersForPatient = (patientId: string) =>
     state.orders.filter((order) => order.patientId === patientId && !["Rejected", "Administered", "Missed/Held"].includes(order.status));
 
+  const cpoePreviewAlerts = useMemo(() => {
+    if (!selectedOrderPatient) return [];
+    const timestamp = new Date().toISOString();
+    return orderForm.items.flatMap((draft, index) => {
+      const scheduledTimes = buildScheduledTimes(draft);
+      if (!draft.drugName.trim() || !draft.dose.trim() || scheduledTimes.length === 0) return [];
+      return runDemoSafetyChecks({
+        patient: selectedOrderPatient,
+        activeOrders: state.orders.filter((order) => order.patientId === selectedOrderPatient.id && !["Rejected", "Administered", "Missed/Held"].includes(order.status)),
+        orderId: `DRAFT-${index + 1}`,
+        timestamp,
+        draftOrder: {
+          drugName: draft.drugName.trim(),
+          dose: draft.dose.trim(),
+          route: draft.route.trim(),
+          scheduledTime: scheduledTimes[0]
+        }
+      });
+    });
+  }, [orderForm.items, selectedOrderPatient, state.orders]);
+
   const addPatientTimeline = (patients: Patient[], patientId: string, event: PatientTimelineEvent) =>
     patients.map((patient) =>
       patient.id === patientId
@@ -655,22 +824,147 @@ export default function Home() {
         : patient
     );
 
+  function updateOrderDraft(draftId: string, patch: Partial<OrderDraft>) {
+    setOrderForm((form) => ({
+      ...form,
+      items: form.items.map((item) => (item.id === draftId ? { ...item, ...patch } : item))
+    }));
+  }
+
+  function addOrderDraft() {
+    setOrderForm((form) => ({ ...form, items: [...form.items, createOrderDraft()] }));
+  }
+
+  function removeOrderDraft(draftId: string) {
+    setOrderForm((form) => ({
+      ...form,
+      items: form.items.length === 1 ? form.items : form.items.filter((item) => item.id !== draftId)
+    }));
+  }
+
+  function handleAdmissionImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files ?? []);
+    files.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => setAdmissionScreeningImages((images) => [...images, String(reader.result)].slice(0, 6));
+      reader.readAsDataURL(file);
+    });
+    event.currentTarget.value = "";
+  }
+
+  function handlePatientScanImageUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setPatientScanImage(String(reader.result));
+      setPatientScanImageName(file.name);
+    };
+    reader.readAsDataURL(file);
+    event.currentTarget.value = "";
+  }
+
+  function updateDispensingForm(orderId: string, patch: Partial<{ doseTaken: string; packageType: "Full box" | "Individual bag"; customDose: string; scanBarcode: string }>) {
+    setDispensingForms((forms) => ({
+      ...forms,
+      [orderId]: {
+        doseTaken: forms[orderId]?.doseTaken ?? "",
+        packageType: forms[orderId]?.packageType ?? "Full box",
+        customDose: forms[orderId]?.customDose ?? "",
+        scanBarcode: forms[orderId]?.scanBarcode ?? "",
+        ...patch
+      }
+    }));
+  }
+
+  function generateMedicationBarcode(order: MedicationOrder) {
+    if (!canUse(currentUser.role, "Pharmacist")) return;
+    const timestamp = new Date().toISOString();
+    const form = dispensingForms[order.id] ?? { doseTaken: order.dose, packageType: "Full box" as const, customDose: "", scanBarcode: "" };
+    const medicationBarcode = `DOSE-${order.id}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const audit = createAuditEvent(currentUser, "Medication barcode generated", `Generated medication barcode ${medicationBarcode} for ${order.drugName}.`, order.patientId, order.id, timestamp);
+    const timeline = createTimelineEvent(currentUser, `Medication barcode ${medicationBarcode} generated for ${order.drugName}.`, timestamp);
+
+    setState((previous) => ({
+      ...previous,
+      orders: previous.orders.map((item) => (item.id === order.id ? { ...item, doseBarcode: medicationBarcode, updatedAt: timestamp } : item)),
+      dispenses: previous.dispenses.some((dispense) => dispense.orderId === order.id)
+        ? previous.dispenses.map((dispense) =>
+            dispense.orderId === order.id
+              ? {
+                  ...dispense,
+                  medicationBarcode,
+                  doseTaken: form.doseTaken || order.dose,
+                  packageType: form.packageType,
+                  customDose: form.customDose,
+                  scannedBarcode: form.scanBarcode,
+                  createdBy: currentUser.name,
+                  preparedBy: currentUser.name,
+                  preparedAt: timestamp
+                }
+              : dispense
+          )
+        : [
+            {
+              id: makeId("DSP"),
+              patientId: order.patientId,
+              orderId: order.id,
+              medicationBarcode,
+              doseTaken: form.doseTaken || order.dose,
+              packageType: form.packageType,
+              customDose: form.customDose,
+              scannedBarcode: form.scanBarcode,
+              createdBy: currentUser.name,
+              preparedBy: currentUser.name,
+              preparedAt: timestamp
+            },
+            ...previous.dispenses
+          ],
+      auditEvents: [...previous.auditEvents, audit],
+      patients: addPatientTimeline(previous.patients, order.patientId, timeline)
+    }));
+    setDispensingForms((forms) => ({
+      ...forms,
+      [order.id]: { ...form, doseTaken: form.doseTaken || order.dose, scanBarcode: medicationBarcode }
+    }));
+    setMedicationScan(medicationBarcode);
+  }
+
   function createPatient(event: FormEvent) {
     event.preventDefault();
     setAdmissionError("");
     const formData = new FormData(event.currentTarget as HTMLFormElement);
     const formValues = {
+      admissionType: formText(formData, "admissionType") as Patient["admissionType"],
+      readmissionBarcode: formText(formData, "readmissionBarcode"),
       name: formText(formData, "name"),
       dateOfBirth: formText(formData, "dateOfBirth"),
+      gender: formText(formData, "gender"),
+      nationality: formText(formData, "nationality"),
+      citizenId: formText(formData, "citizenId"),
+      ethnicity: formText(formData, "ethnicity"),
+      bloodType: formText(formData, "bloodType"),
+      heightCm: formText(formData, "heightCm"),
+      occupation: formText(formData, "occupation"),
+      reasonForVisit: formText(formData, "reasonForVisit"),
       allergies: formText(formData, "allergies"),
       adverseDrugReactions: formText(formData, "adverseDrugReactions"),
       pastMedicalHistory: formText(formData, "pastMedicalHistory"),
+      priorDisorders: formText(formData, "priorDisorders"),
+      recentHistory: formText(formData, "recentHistory"),
       currentMedications: formText(formData, "currentMedications"),
       homeMedications: formText(formData, "homeMedications"),
       weightKg: formText(formData, "weightKg"),
       renalFunction: formText(formData, "renalFunction"),
       potassium: formText(formData, "potassium"),
-      creatinine: formText(formData, "creatinine")
+      creatinine: formText(formData, "creatinine"),
+      patientPhone: formText(formData, "patientPhone"),
+      patientEmail: formText(formData, "patientEmail"),
+      patientAddress: formText(formData, "patientAddress"),
+      emergencyPhone: formText(formData, "emergencyPhone"),
+      emergencyEmail: formText(formData, "emergencyEmail"),
+      emergencyAddress: formText(formData, "emergencyAddress"),
+      insuranceLink: formText(formData, "insuranceLink")
     };
 
     if (!canUse(currentUser.role, "Ward Clerk")) {
@@ -686,24 +980,51 @@ export default function Home() {
     const timestamp = new Date().toISOString();
     const patientId = makeId("PAT");
     const barcode = `WRIST-${patientId}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-    const timelineEvent = createTimelineEvent(currentUser, `Patient admitted and wristband barcode ${barcode} generated.`, timestamp);
+    const currentMedicationDetails = parseMedicationDetails(formValues.currentMedications);
+    const homeMedicationDetails = parseMedicationDetails(formValues.homeMedications);
+    const timelineEvent = createTimelineEvent(currentUser, `${formValues.admissionType} recorded and wristband barcode ${barcode} generated.`, timestamp);
     const patient: Patient = {
       id: patientId,
       barcode,
+      admissionType: formValues.admissionType || "New admission",
       name: formValues.name.trim(),
       dateOfBirth: formValues.dateOfBirth,
       age: calculateAge(formValues.dateOfBirth),
+      gender: formValues.gender.trim(),
+      nationality: formValues.nationality.trim(),
+      citizenId: formValues.citizenId.trim(),
+      ethnicity: formValues.ethnicity.trim(),
+      bloodType: formValues.bloodType.trim(),
+      heightCm: Number(formValues.heightCm),
+      occupation: formValues.occupation.trim(),
       allergies: splitList(formValues.allergies),
       adverseDrugReactions: splitList(formValues.adverseDrugReactions),
       pastMedicalHistory: splitList(formValues.pastMedicalHistory),
-      currentMedications: splitList(formValues.currentMedications),
-      homeMedications: splitList(formValues.homeMedications),
+      priorDisorders: splitLines(formValues.priorDisorders),
+      recentHistory: formValues.recentHistory.trim(),
+      reasonForVisit: formValues.reasonForVisit.trim(),
+      currentMedications: currentMedicationDetails.map((item) => item.name).filter(Boolean),
+      homeMedications: homeMedicationDetails.map((item) => item.name).filter(Boolean),
+      currentMedicationDetails,
+      homeMedicationDetails,
       weightKg: Number(formValues.weightKg),
       renalFunction: Number(formValues.renalFunction),
       labs: [
         { name: "Potassium", value: Number(formValues.potassium), unit: "mmol/L", flag: Number(formValues.potassium) < 3.5 ? "low" : "normal", collectedAt: timestamp },
         { name: "Creatinine", value: Number(formValues.creatinine), unit: "mg/dL", flag: Number(formValues.creatinine) > 1.3 ? "high" : "normal", collectedAt: timestamp }
       ],
+      patientContact: {
+        phone: formValues.patientPhone.trim(),
+        email: formValues.patientEmail.trim(),
+        address: formValues.patientAddress.trim()
+      },
+      emergencyContact: {
+        phone: formValues.emergencyPhone.trim(),
+        email: formValues.emergencyEmail.trim(),
+        address: formValues.emergencyAddress.trim()
+      },
+      insuranceLink: formValues.insuranceLink.trim(),
+      screeningImages: admissionScreeningImages,
       createdAt: timestamp,
       updatedAt: timestamp,
       createdBy: currentUser.name,
@@ -719,88 +1040,96 @@ export default function Home() {
     setSelectedPatientId(patient.id);
     setOrderForm((form) => ({ ...form, patientId: patient.id }));
     setPatientScan(barcode);
-    setHandoverPatientId(patient.id);
+    setHandoverBarcode(barcode);
+    setAdmissionScreeningImages([]);
     setAdmissionForm(emptyAdmissionForm);
   }
 
   function submitOrder(event: FormEvent) {
     event.preventDefault();
     setOrderError("");
-    const formData = new FormData(event.currentTarget as HTMLFormElement);
-    const formValues = {
-      patientId: formText(formData, "patientId"),
-      drugName: formText(formData, "drugName"),
-      dose: formText(formData, "dose"),
-      route: formText(formData, "route"),
-      frequency: formText(formData, "frequency"),
-      scheduledTime: formText(formData, "scheduledTime"),
-      notes: formText(formData, "notes")
-    };
 
     if (!canUse(currentUser.role, "Physician")) {
       setOrderError("Switch to Physician or Admin to submit CPOE orders.");
       return;
     }
 
-    if (!formValues.patientId || !formValues.drugName.trim() || !formValues.dose.trim() || !formValues.route.trim() || !formValues.scheduledTime) {
-      setOrderError("Patient, drug, dose, route, and scheduled time are required.");
+    const drafts = orderForm.items.filter((item) => item.drugName.trim() || item.dose.trim());
+    if (!orderForm.patientId || drafts.length === 0) {
+      setOrderError("Patient and at least one medication order are required.");
       return;
     }
 
-    const patient = state.patients.find((item) => item.id === formValues.patientId);
+    if (drafts.some((item) => !item.drugName.trim() || !item.dose.trim() || !item.route.trim() || buildScheduledTimes(item).length === 0)) {
+      setOrderError("Each medication needs drug name, dose, route, and at least one scheduled date/time.");
+      return;
+    }
+
+    const patient = state.patients.find((item) => item.id === orderForm.patientId);
     if (!patient) {
       setOrderError("Selected patient could not be found.");
       return;
     }
 
     const timestamp = new Date().toISOString();
-    const orderId = makeId("ORD");
-    const activeOrders = activeOrdersForPatient(patient.id);
-    const alerts = runDemoSafetyChecks({
-      patient,
-      activeOrders,
-      orderId,
-      timestamp,
-      draftOrder: {
-        drugName: formValues.drugName.trim(),
-        dose: formValues.dose.trim(),
-        route: formValues.route.trim(),
-        scheduledTime: toIsoFromLocalInput(formValues.scheduledTime)
-      }
-    });
-    const order: MedicationOrder = {
-      id: orderId,
-      patientId: patient.id,
-      physicianId: currentUser.id,
-      physicianName: currentUser.name,
-      drugName: formValues.drugName.trim(),
-      dose: formValues.dose.trim(),
-      route: formValues.route.trim(),
-      frequency: formValues.frequency.trim(),
-      scheduledTime: toIsoFromLocalInput(formValues.scheduledTime),
-      notes: formValues.notes.trim(),
-      status: "Pharmacy Review",
-      alertIds: alerts.map((alert) => alert.id),
-      createdAt: timestamp,
-      updatedAt: timestamp
-    };
+    const submittedOrders: MedicationOrder[] = [];
+    const generatedAlerts: SafetyAlert[] = [];
+    const auditEvents: AuditEvent[] = [];
 
-    const timelineEvent = createTimelineEvent(currentUser, `Submitted ${order.drugName} ${order.dose} ${order.route} for pharmacy review.`, timestamp);
-    const auditEvents = [
-      createAuditEvent(currentUser, "Order submitted", `Submitted ${order.drugName} ${order.dose} ${order.route} for pharmacy review.`, patient.id, order.id, timestamp),
-      ...alerts.map((alert) =>
-        createAuditEvent(currentUser, "Alert generated", `${alert.type}: ${alert.message}`, patient.id, order.id, timestamp)
-      )
-    ];
+    drafts.forEach((draft) => {
+      const orderId = makeId("ORD");
+      const scheduledTimes = buildScheduledTimes(draft);
+      const frequency = draft.frequency === "Custom" ? draft.customFrequency.trim() : draft.frequency.trim();
+      const activeOrders = [...activeOrdersForPatient(patient.id), ...submittedOrders];
+      const alerts = runDemoSafetyChecks({
+        patient,
+        activeOrders,
+        orderId,
+        timestamp,
+        draftOrder: {
+          drugName: draft.drugName.trim(),
+          dose: draft.dose.trim(),
+          route: draft.route.trim(),
+          scheduledTime: scheduledTimes[0]
+        }
+      });
+      const order: MedicationOrder = {
+        id: orderId,
+        patientId: patient.id,
+        physicianId: currentUser.id,
+        physicianName: currentUser.name,
+        drugName: draft.drugName.trim(),
+        dose: draft.dose.trim(),
+        route: draft.route.trim(),
+        frequency: frequency || "Custom",
+        scheduledTime: scheduledTimes[0],
+        scheduledTimes,
+        scheduleDisplay: formatScheduleList(scheduledTimes),
+        notes: draft.notes.trim(),
+        status: "Pharmacy Review",
+        alertIds: alerts.map((alert) => alert.id),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+
+      submittedOrders.push(order);
+      generatedAlerts.push(...alerts);
+      auditEvents.push(
+        createAuditEvent(currentUser, "Order submitted", `Submitted ${order.drugName} ${order.dose} ${order.route} for pharmacy review.`, patient.id, order.id, timestamp),
+        ...alerts.map((alert) => createAuditEvent(currentUser, "Alert generated", `${alert.type}: ${alert.message}`, patient.id, order.id, timestamp))
+      );
+    });
+
+    const timelineEvent = createTimelineEvent(currentUser, `Submitted ${submittedOrders.length} medication order(s) for pharmacy review.`, timestamp);
 
     setState((previous) => ({
       ...previous,
-      orders: [order, ...previous.orders],
-      alerts: [...previous.alerts, ...alerts],
+      orders: [...submittedOrders, ...previous.orders],
+      alerts: [...previous.alerts, ...generatedAlerts],
       auditEvents: [...previous.auditEvents, ...auditEvents],
       patients: addPatientTimeline(previous.patients, patient.id, timelineEvent)
     }));
-    setOrderForm({ ...emptyOrderForm, patientId: patient.id, scheduledTime: localDateTimeInput() });
+    setOrderForm({ patientId: patient.id, items: [createOrderDraft()] });
   }
 
   function approveOrder(order: MedicationOrder) {
@@ -808,6 +1137,7 @@ export default function Home() {
     const timestamp = new Date().toISOString();
     const doseBarcode = `DOSE-${order.id}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
     const notes = pharmacyNotes[order.id]?.trim();
+    const form = dispensingForms[order.id] ?? { doseTaken: order.dose, packageType: "Full box" as const, customDose: "", scanBarcode: doseBarcode };
     const audit = createAuditEvent(currentUser, "Pharmacy approved", `Approved ${order.drugName}; generated dose barcode ${doseBarcode}.`, order.patientId, order.id, timestamp);
     const timeline = createTimelineEvent(currentUser, `Pharmacy approved ${order.drugName} and generated dose barcode ${doseBarcode}.`, timestamp);
 
@@ -824,6 +1154,11 @@ export default function Home() {
           patientId: order.patientId,
           orderId: order.id,
           medicationBarcode: doseBarcode,
+          doseTaken: form.doseTaken || order.dose,
+          packageType: form.packageType,
+          customDose: form.customDose,
+          scannedBarcode: form.scanBarcode || doseBarcode,
+          createdBy: currentUser.name,
           preparedBy: currentUser.name,
           preparedAt: timestamp,
           notes
@@ -832,6 +1167,10 @@ export default function Home() {
       ],
       auditEvents: [...previous.auditEvents, audit],
       patients: addPatientTimeline(previous.patients, order.patientId, timeline)
+    }));
+    setDispensingForms((forms) => ({
+      ...forms,
+      [order.id]: { ...form, doseTaken: form.doseTaken || order.dose, scanBarcode: doseBarcode }
     }));
   }
 
@@ -855,6 +1194,7 @@ export default function Home() {
   function dispenseOrder(order: MedicationOrder) {
     if (!canUse(currentUser.role, "Pharmacist") || order.status !== "Approved") return;
     const timestamp = new Date().toISOString();
+    const form = dispensingForms[order.id] ?? { doseTaken: order.dose, packageType: "Full box" as const, customDose: "", scanBarcode: order.doseBarcode ?? "" };
     const audit = createAuditEvent(currentUser, "Medication dispensed", `Marked ${order.drugName} dose as prepared and dispensed.`, order.patientId, order.id, timestamp);
     const timeline = createTimelineEvent(currentUser, `Medication dose for ${order.drugName} dispensed to unit.`, timestamp);
 
@@ -862,7 +1202,17 @@ export default function Home() {
       ...previous,
       orders: previous.orders.map((item) => (item.id === order.id ? { ...item, status: "Dispensed", updatedAt: timestamp } : item)),
       dispenses: previous.dispenses.map((dispense) =>
-        dispense.orderId === order.id ? { ...dispense, dispensedAt: timestamp } : dispense
+        dispense.orderId === order.id
+          ? {
+              ...dispense,
+              doseTaken: form.doseTaken || order.dose,
+              packageType: form.packageType,
+              customDose: form.customDose,
+              scannedBarcode: form.scanBarcode,
+              createdBy: dispense.createdBy ?? currentUser.name,
+              dispensedAt: timestamp
+            }
+          : dispense
       ),
       auditEvents: [...previous.auditEvents, audit],
       patients: addPatientTimeline(previous.patients, order.patientId, timeline)
@@ -915,7 +1265,14 @@ export default function Home() {
       patients: addPatientTimeline(
         previous.patients.map((patient) =>
           patient.id === scannedPatient.id && status === "Administered" && !patient.currentMedications.includes(scannedOrder.drugName)
-            ? { ...patient, currentMedications: [...patient.currentMedications, scannedOrder.drugName] }
+            ? {
+                ...patient,
+                currentMedications: [...patient.currentMedications, scannedOrder.drugName],
+                currentMedicationDetails: [
+                  ...patient.currentMedicationDetails,
+                  { name: scannedOrder.drugName, dose: scannedOrder.dose, duration: "Started during this admission" }
+                ]
+              }
             : patient
         ),
         scannedPatient.id,
@@ -931,8 +1288,8 @@ export default function Home() {
     const timestamp = new Date().toISOString();
     const description =
       action === "view"
-        ? `Viewed handover summary for ${handoverPatient.name}.`
-        : `Handover note added for ${handoverPatient.name}: ${handoverNote.trim()}`;
+        ? `Viewed handover summary for ${handoverPatient.name}${handoverTo.trim() ? ` for ${handoverTo.trim()}` : ""}.`
+        : `Handover note added for ${handoverPatient.name}${handoverTo.trim() ? ` to ${handoverTo.trim()}` : ""}: ${handoverNote.trim()}`;
     const timeline = createTimelineEvent(currentUser, description, timestamp);
     const audit = createAuditEvent(
       currentUser,
@@ -958,8 +1315,12 @@ export default function Home() {
     setSelectedPatientId(seedState.patients[0]?.id ?? "");
     setOrderForm({ ...emptyOrderForm, patientId: seedState.patients[0]?.id ?? "" });
     setPatientScan(seedState.patients[0]?.barcode ?? "");
+    setPatientScanImage("");
+    setPatientScanImageName("");
+    setAdmissionScreeningImages([]);
     setMedicationScan("");
-    setHandoverPatientId(seedState.patients[0]?.id ?? "");
+    setHandoverBarcode(seedState.patients[0]?.barcode ?? "");
+    setHandoverTo("");
     setActiveModule(defaultWorkspace[currentUser.role]);
     setPendingDeletePatientId(null);
   }
@@ -1001,7 +1362,7 @@ export default function Home() {
       auditEvents: [...previous.auditEvents, audit]
     }));
     setSelectedPatientId(nextPatientId);
-    setHandoverPatientId(nextPatientId);
+    setHandoverBarcode((barcode) => (barcode === selectedPatient.barcode ? remainingPatients[0]?.barcode ?? "" : barcode));
     setOrderForm((form) => ({ ...form, patientId: form.patientId === deletedPatientId ? nextPatientId : form.patientId }));
     setPatientScan((scan) => (scan === selectedPatient.barcode ? "" : scan));
     setMedicationScan((scan) => {
@@ -1112,40 +1473,150 @@ export default function Home() {
               <form onSubmit={createPatient} className="grid gap-4">
                 {admissionError ? <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">{admissionError}</div> : null}
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Patient name" required>
-                    <input name="name" className={inputClass} value={admissionForm.name} onChange={(event) => setAdmissionForm({ ...admissionForm, name: event.target.value })} />
+                  <Field label="Admission type">
+                    <select name="admissionType" className={inputClass} value={admissionForm.admissionType} onChange={(event) => setAdmissionForm({ ...admissionForm, admissionType: event.target.value })}>
+                      <option>New admission</option>
+                      <option>Re-admitted patient</option>
+                    </select>
                   </Field>
-                  <Field label="Date of birth" required>
-                    <input name="dateOfBirth" placeholder="YYYY-MM-DD" className={inputClass} value={admissionForm.dateOfBirth} onChange={(event) => setAdmissionForm({ ...admissionForm, dateOfBirth: event.target.value })} />
+                  <Field label="Scan barcode">
+                    <input
+                      name="readmissionBarcode"
+                      className={inputClass}
+                      placeholder="Paste the patient wristband barcode"
+                      value={admissionForm.readmissionBarcode}
+                      onChange={(event) => setAdmissionForm({ ...admissionForm, readmissionBarcode: event.target.value })}
+                    />
                   </Field>
-                  <Field label="Weight (kg)" required>
-                    <input name="weightKg" type="number" min="1" className={inputClass} value={admissionForm.weightKg} onChange={(event) => setAdmissionForm({ ...admissionForm, weightKg: event.target.value })} />
+                </div>
+                <div className="rounded-md border border-clinical-line bg-clinical-panel p-3 text-sm">
+                  <p className="font-semibold text-clinical-ink">Re-admitted Patient</p>
+                  <p className="mt-1 text-clinical-muted">
+                    {readmissionPatient
+                      ? `Previous demo EHR found for ${readmissionPatient.name}. Use the insurance or past EHR link below to connect outside records.`
+                      : "Scan an existing wristband barcode when this is a returning patient."}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-clinical-muted">Basic info</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Patient name" required>
+                      <input name="name" className={inputClass} placeholder="Enter patient name" value={admissionForm.name} onChange={(event) => setAdmissionForm({ ...admissionForm, name: event.target.value })} />
+                    </Field>
+                    <Field label="Date of birth" required>
+                      <input name="dateOfBirth" placeholder="YYYY-MM-DD" className={inputClass} value={admissionForm.dateOfBirth} onChange={(event) => setAdmissionForm({ ...admissionForm, dateOfBirth: event.target.value })} />
+                    </Field>
+                    <Field label="Gender">
+                      <input name="gender" className={inputClass} placeholder="Enter gender" value={admissionForm.gender} onChange={(event) => setAdmissionForm({ ...admissionForm, gender: event.target.value })} />
+                    </Field>
+                    <Field label="Nationality">
+                      <input name="nationality" className={inputClass} placeholder="Enter nationality" value={admissionForm.nationality} onChange={(event) => setAdmissionForm({ ...admissionForm, nationality: event.target.value })} />
+                    </Field>
+                    <Field label="Citizen Identification Card / Passport">
+                      <input name="citizenId" className={inputClass} placeholder="Enter ID card or passport number" value={admissionForm.citizenId} onChange={(event) => setAdmissionForm({ ...admissionForm, citizenId: event.target.value })} />
+                    </Field>
+                    <Field label="Ethnicity">
+                      <input name="ethnicity" className={inputClass} placeholder="Enter ethnicity" value={admissionForm.ethnicity} onChange={(event) => setAdmissionForm({ ...admissionForm, ethnicity: event.target.value })} />
+                    </Field>
+                    <Field label="Blood type">
+                      <input name="bloodType" className={inputClass} placeholder="A+, B+, O-, unknown" value={admissionForm.bloodType} onChange={(event) => setAdmissionForm({ ...admissionForm, bloodType: event.target.value })} />
+                    </Field>
+                    <Field label="Height (cm)">
+                      <input name="heightCm" type="number" min="1" className={inputClass} placeholder="Enter height in cm" value={admissionForm.heightCm} onChange={(event) => setAdmissionForm({ ...admissionForm, heightCm: event.target.value })} />
+                    </Field>
+                    <Field label="Weight (kg)" required>
+                      <input name="weightKg" type="number" min="1" className={inputClass} placeholder="Enter weight in kg" value={admissionForm.weightKg} onChange={(event) => setAdmissionForm({ ...admissionForm, weightKg: event.target.value })} />
+                    </Field>
+                    <Field label="Occupation">
+                      <input name="occupation" className={inputClass} placeholder="Enter occupation" value={admissionForm.occupation} onChange={(event) => setAdmissionForm({ ...admissionForm, occupation: event.target.value })} />
+                    </Field>
+                    <Field label="Renal function eGFR" required>
+                      <input name="renalFunction" type="number" min="0" className={inputClass} placeholder="Enter eGFR" value={admissionForm.renalFunction} onChange={(event) => setAdmissionForm({ ...admissionForm, renalFunction: event.target.value })} />
+                    </Field>
+                  </div>
+                </div>
+                <Field label="Needs updated what happened that they come to the hospital">
+                  <textarea name="reasonForVisit" className={`${inputClass} min-h-20`} placeholder="Describe why the patient came to the hospital now" value={admissionForm.reasonForVisit} onChange={(event) => setAdmissionForm({ ...admissionForm, reasonForVisit: event.target.value })} />
+                </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Prior disorders">
+                    <textarea name="priorDisorders" className={`${inputClass} min-h-24`} placeholder="Enter prior disorders, one per line" value={admissionForm.priorDisorders} onChange={(event) => setAdmissionForm({ ...admissionForm, priorDisorders: event.target.value })} />
                   </Field>
-                  <Field label="Renal function eGFR" required>
-                    <input name="renalFunction" type="number" min="0" className={inputClass} value={admissionForm.renalFunction} onChange={(event) => setAdmissionForm({ ...admissionForm, renalFunction: event.target.value })} />
+                  <Field label="Recent history">
+                    <textarea name="recentHistory" className={`${inputClass} min-h-24`} placeholder="Enter recent history before this admission" value={admissionForm.recentHistory} onChange={(event) => setAdmissionForm({ ...admissionForm, recentHistory: event.target.value })} />
                   </Field>
-                  <Field label="Potassium">
-                    <input name="potassium" type="number" step="0.1" className={inputClass} value={admissionForm.potassium} onChange={(event) => setAdmissionForm({ ...admissionForm, potassium: event.target.value })} />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Potassium (mmol/L)">
+                    <input name="potassium" type="number" step="0.1" className={inputClass} placeholder="Enter potassium value" value={admissionForm.potassium} onChange={(event) => setAdmissionForm({ ...admissionForm, potassium: event.target.value })} />
                   </Field>
-                  <Field label="Creatinine">
-                    <input name="creatinine" type="number" step="0.1" className={inputClass} value={admissionForm.creatinine} onChange={(event) => setAdmissionForm({ ...admissionForm, creatinine: event.target.value })} />
+                  <Field label="Creatinine (mg/dL)">
+                    <input name="creatinine" type="number" step="0.1" className={inputClass} placeholder="Enter creatinine value" value={admissionForm.creatinine} onChange={(event) => setAdmissionForm({ ...admissionForm, creatinine: event.target.value })} />
                   </Field>
                 </div>
                 <Field label="Allergies">
-                  <input name="allergies" className={inputClass} placeholder="Penicillin, Sulfa" value={admissionForm.allergies} onChange={(event) => setAdmissionForm({ ...admissionForm, allergies: event.target.value })} />
+                  <input name="allergies" className={inputClass} placeholder="Enter allergies, separated by commas" value={admissionForm.allergies} onChange={(event) => setAdmissionForm({ ...admissionForm, allergies: event.target.value })} />
                 </Field>
                 <Field label="Adverse drug reactions">
-                  <input name="adverseDrugReactions" className={inputClass} value={admissionForm.adverseDrugReactions} onChange={(event) => setAdmissionForm({ ...admissionForm, adverseDrugReactions: event.target.value })} />
+                  <input name="adverseDrugReactions" className={inputClass} placeholder="Enter adverse drug reactions" value={admissionForm.adverseDrugReactions} onChange={(event) => setAdmissionForm({ ...admissionForm, adverseDrugReactions: event.target.value })} />
                 </Field>
                 <Field label="Past medical history">
-                  <input name="pastMedicalHistory" className={inputClass} value={admissionForm.pastMedicalHistory} onChange={(event) => setAdmissionForm({ ...admissionForm, pastMedicalHistory: event.target.value })} />
+                  <input name="pastMedicalHistory" className={inputClass} placeholder="Enter past medical history, separated by commas" value={admissionForm.pastMedicalHistory} onChange={(event) => setAdmissionForm({ ...admissionForm, pastMedicalHistory: event.target.value })} />
                 </Field>
-                <Field label="Current medications">
-                  <input name="currentMedications" className={inputClass} value={admissionForm.currentMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, currentMedications: event.target.value })} />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Current medications">
+                    <textarea name="currentMedications" className={`${inputClass} min-h-24`} placeholder="Name | dose | how long taken" value={admissionForm.currentMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, currentMedications: event.target.value })} />
+                  </Field>
+                  <Field label="Home medications">
+                    <textarea name="homeMedications" className={`${inputClass} min-h-24`} placeholder="Name | dose | how long taken" value={admissionForm.homeMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, homeMedications: event.target.value })} />
+                  </Field>
+                </div>
+                <div>
+                  <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-clinical-muted">Contact list</h3>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label="Patient phone number">
+                      <input name="patientPhone" className={inputClass} placeholder="Enter phone number" value={admissionForm.patientPhone} onChange={(event) => setAdmissionForm({ ...admissionForm, patientPhone: event.target.value })} />
+                    </Field>
+                    <Field label="Patient email">
+                      <input name="patientEmail" className={inputClass} placeholder="Enter email" value={admissionForm.patientEmail} onChange={(event) => setAdmissionForm({ ...admissionForm, patientEmail: event.target.value })} />
+                    </Field>
+                    <Field label="Patient address">
+                      <input name="patientAddress" className={inputClass} placeholder="Enter address" value={admissionForm.patientAddress} onChange={(event) => setAdmissionForm({ ...admissionForm, patientAddress: event.target.value })} />
+                    </Field>
+                    <Field label="Emergency phone number">
+                      <input name="emergencyPhone" className={inputClass} placeholder="Enter emergency phone" value={admissionForm.emergencyPhone} onChange={(event) => setAdmissionForm({ ...admissionForm, emergencyPhone: event.target.value })} />
+                    </Field>
+                    <Field label="Emergency email">
+                      <input name="emergencyEmail" className={inputClass} placeholder="Enter emergency email" value={admissionForm.emergencyEmail} onChange={(event) => setAdmissionForm({ ...admissionForm, emergencyEmail: event.target.value })} />
+                    </Field>
+                    <Field label="Emergency address">
+                      <input name="emergencyAddress" className={inputClass} placeholder="Enter emergency address" value={admissionForm.emergencyAddress} onChange={(event) => setAdmissionForm({ ...admissionForm, emergencyAddress: event.target.value })} />
+                    </Field>
+                  </div>
+                </div>
+                <Field label="Insurance / past EHR link">
+                  <input name="insuranceLink" className={inputClass} placeholder="Paste link to insurance or past EHR from another hospital" value={admissionForm.insuranceLink} onChange={(event) => setAdmissionForm({ ...admissionForm, insuranceLink: event.target.value })} />
                 </Field>
-                <Field label="Home medications">
-                  <input name="homeMedications" className={inputClass} value={admissionForm.homeMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, homeMedications: event.target.value })} />
-                </Field>
+                <div className="rounded-md border border-clinical-line bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-clinical-ink">Screening images</p>
+                      <p className="mt-1 text-xs text-clinical-muted">Upload admission screening images for this demo EHR.</p>
+                    </div>
+                    <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold hover:bg-clinical-panel">
+                      <Upload className="h-4 w-4" aria-hidden="true" />
+                      Upload Images
+                      <input type="file" accept="image/*" multiple className="sr-only" onChange={handleAdmissionImageUpload} />
+                    </label>
+                  </div>
+                  {admissionScreeningImages.length ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                      {admissionScreeningImages.map((image, index) => (
+                        <NextImage key={`${image}-${index}`} src={image} alt={`Screening upload ${index + 1}`} width={320} height={112} unoptimized className="h-28 w-full rounded-md border border-clinical-line object-cover" />
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
                 <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-clinical-teal px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800">
                   <UserPlus className="h-4 w-4" aria-hidden="true" />
                   Create Patient
@@ -1231,38 +1702,74 @@ export default function Home() {
                     ))}
                   </select>
                 </Field>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Drug name" required>
-                    <input name="drugName" className={inputClass} value={orderForm.drugName} onChange={(event) => setOrderForm({ ...orderForm, drugName: event.target.value })} placeholder="Digoxin" />
-                  </Field>
-                  <Field label="Dose" required>
-                    <input name="dose" className={inputClass} value={orderForm.dose} onChange={(event) => setOrderForm({ ...orderForm, dose: event.target.value })} placeholder="0.125 mg" />
-                  </Field>
-                  <Field label="Route" required>
-                    <select name="route" className={inputClass} value={orderForm.route} onChange={(event) => setOrderForm({ ...orderForm, route: event.target.value })}>
-                      <option>Oral</option>
-                      <option>Intravenous</option>
-                      <option>Intramuscular</option>
-                      <option>Subcutaneous</option>
-                      <option>Topical</option>
-                    </select>
-                  </Field>
-                  <Field label="Frequency">
-                    <select name="frequency" className={inputClass} value={orderForm.frequency} onChange={(event) => setOrderForm({ ...orderForm, frequency: event.target.value })}>
-                      <option>Once daily</option>
-                      <option>Twice daily</option>
-                      <option>Three times daily</option>
-                      <option>Every 6 hours</option>
-                      <option>Once</option>
-                    </select>
-                  </Field>
-                  <Field label="Scheduled time" required>
-                    <input name="scheduledTime" type="datetime-local" className={inputClass} value={orderForm.scheduledTime} onChange={(event) => setOrderForm({ ...orderForm, scheduledTime: event.target.value })} />
-                  </Field>
+                <div className="grid gap-4">
+                  {orderForm.items.map((item, index) => (
+                    <div key={item.id} className="grid gap-4 rounded-lg border border-clinical-line bg-clinical-panel p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Medication order {index + 1}</h3>
+                        <button
+                          type="button"
+                          onClick={() => removeOrderDraft(item.id)}
+                          disabled={orderForm.items.length === 1}
+                          className="rounded-md border border-clinical-line bg-white px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:text-slate-400"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field label="Drug name" required>
+                          <input className={inputClass} value={item.drugName} onChange={(event) => updateOrderDraft(item.id, { drugName: event.target.value })} placeholder="Enter drug name" />
+                        </Field>
+                        <Field label="Dose" required>
+                          <input className={inputClass} value={item.dose} onChange={(event) => updateOrderDraft(item.id, { dose: event.target.value })} placeholder="Enter dose, e.g. 0.125 mg" />
+                        </Field>
+                        <Field label="Route" required>
+                          <select className={inputClass} value={item.route} onChange={(event) => updateOrderDraft(item.id, { route: event.target.value })}>
+                            <option>Oral</option>
+                            <option>Intravenous</option>
+                            <option>Intramuscular</option>
+                            <option>Subcutaneous</option>
+                            <option>Topical</option>
+                          </select>
+                        </Field>
+                        <Field label="Frequency">
+                          <select className={inputClass} value={item.frequency} onChange={(event) => updateOrderDraft(item.id, { frequency: event.target.value })}>
+                            <option>Once daily</option>
+                            <option>Twice daily</option>
+                            <option>Three times daily</option>
+                            <option>Every 6 hours</option>
+                            <option>Once</option>
+                            <option>Custom</option>
+                          </select>
+                        </Field>
+                        {item.frequency === "Custom" ? (
+                          <Field label="Custom frequency">
+                            <input className={inputClass} placeholder="Write custom frequency" value={item.customFrequency} onChange={(event) => updateOrderDraft(item.id, { customFrequency: event.target.value })} />
+                          </Field>
+                        ) : null}
+                        <Field label="Start date" required>
+                          <input type="date" className={inputClass} value={item.scheduledStartDate} onChange={(event) => updateOrderDraft(item.id, { scheduledStartDate: event.target.value })} />
+                        </Field>
+                        <Field label="End date">
+                          <input type="date" className={inputClass} value={item.scheduledEndDate} onChange={(event) => updateOrderDraft(item.id, { scheduledEndDate: event.target.value })} />
+                        </Field>
+                        <Field label="Scheduled hours" required>
+                          <input className={inputClass} placeholder="09:00, 16:00" value={item.scheduledTimes} onChange={(event) => updateOrderDraft(item.id, { scheduledTimes: event.target.value })} />
+                        </Field>
+                      </div>
+                      <Field label="Notes">
+                        <textarea className={`${inputClass} min-h-20`} placeholder="Enter order notes" value={item.notes} onChange={(event) => updateOrderDraft(item.id, { notes: event.target.value })} />
+                      </Field>
+                      <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                        Schedule preview: {formatScheduleList(buildScheduledTimes(item))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <Field label="Notes">
-                  <textarea name="notes" className={`${inputClass} min-h-24`} value={orderForm.notes} onChange={(event) => setOrderForm({ ...orderForm, notes: event.target.value })} />
-                </Field>
+                <button type="button" onClick={addOrderDraft} className="inline-flex min-h-10 w-fit items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-4 py-2 text-sm font-semibold text-clinical-ink hover:bg-clinical-panel">
+                  <PlusCircle className="h-4 w-4" aria-hidden="true" />
+                  Add Another Order
+                </button>
                 <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-clinical-blue px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
                   <Stethoscope className="h-4 w-4" aria-hidden="true" />
                   Submit to Pharmacy
@@ -1270,7 +1777,13 @@ export default function Home() {
               </form>
             </Section>
             <Section title="Orders and Demo Safety Alerts" icon={AlertTriangle}>
-              <OrdersTable orders={state.orders} patients={state.patients} alerts={state.alerts} />
+              <div className="grid gap-5">
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-clinical-muted">Drug Interaction Preview</h3>
+                  <AlertList alerts={cpoePreviewAlerts} orders={state.orders} patients={state.patients} compact />
+                </div>
+                <OrdersTable orders={state.orders} patients={state.patients} alerts={state.alerts} />
+              </div>
             </Section>
           </div>
         ) : null}
@@ -1282,6 +1795,13 @@ export default function Home() {
               {state.orders.map((order) => {
                 const patient = state.patients.find((item) => item.id === order.patientId);
                 const alerts = state.alerts.filter((alert) => order.alertIds.includes(alert.id));
+                const dispensingForm = dispensingForms[order.id] ?? {
+                  doseTaken: order.dose,
+                  packageType: "Full box" as const,
+                  customDose: "",
+                  scanBarcode: order.doseBarcode ?? ""
+                };
+                const barcodeMatches = Boolean(order.doseBarcode && dispensingForm.scanBarcode.trim() === order.doseBarcode);
                 return (
                   <div key={order.id} className="grid gap-4 rounded-lg border border-clinical-line bg-clinical-panel p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1291,53 +1811,100 @@ export default function Home() {
                           <StatusBadge status={order.status} />
                         </div>
                         <p className="mt-1 text-sm text-clinical-muted">
-                          {patient?.name} - {order.route} - {order.frequency} - due {formatDateTime(order.scheduledTime)}
+                          {patient?.name} - {order.route} - {order.frequency} - due {order.scheduleDisplay ?? formatDateTime(order.scheduledTime)}
                         </p>
                       </div>
                       {order.doseBarcode ? <Badge className="border-teal-300 bg-teal-50 text-teal-800">{order.doseBarcode}</Badge> : null}
                     </div>
                     {patient ? (
-                      <div className="grid gap-3 text-sm md:grid-cols-3">
+                      <div className="grid gap-3 text-sm">
+                        <MedicationDetailsTable title="Current Medications" medications={patient.currentMedicationDetails} />
+                        <div className="grid gap-3 md:grid-cols-3">
                         <InfoBlock title="Allergies" value={patient.allergies.join(", ") || "None recorded"} />
-                        <InfoBlock title="Current meds" value={patient.currentMedications.join(", ") || "None recorded"} />
                         <InfoBlock title="Renal function" value={`eGFR ${patient.renalFunction}`} />
+                          <InfoBlock title="Created by" value={patient.createdBy} />
+                        </div>
                       </div>
                     ) : null}
-                    <AlertList alerts={alerts} orders={state.orders} patients={state.patients} compact />
-                    <Field label="Pharmacist notes">
-                      <textarea
-                        className={`${inputClass} min-h-20`}
-                        value={pharmacyNotes[order.id] ?? order.pharmacistNotes ?? ""}
-                        onChange={(event) => setPharmacyNotes({ ...pharmacyNotes, [order.id]: event.target.value })}
-                      />
-                    </Field>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
-                        onClick={() => approveOrder(order)}
-                        className="inline-flex min-h-10 items-center gap-2 rounded-md bg-clinical-teal px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-                      >
-                        <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                        Approve
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
-                        onClick={() => rejectOrder(order)}
-                        className="inline-flex min-h-10 items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                      >
-                        Reject
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Approved"}
-                        onClick={() => dispenseOrder(order)}
-                        className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
-                      >
-                        <BadgeCheck className="h-4 w-4" aria-hidden="true" />
-                        Mark Dispensed
-                      </button>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="grid gap-3 rounded-lg border border-clinical-line bg-white p-4">
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Verification</h3>
+                        <AlertList alerts={alerts} orders={state.orders} patients={state.patients} compact />
+                        <Field label="Pharmacist notes">
+                          <textarea
+                            className={`${inputClass} min-h-20`}
+                            placeholder="Enter verification notes"
+                            value={pharmacyNotes[order.id] ?? order.pharmacistNotes ?? ""}
+                            onChange={(event) => setPharmacyNotes({ ...pharmacyNotes, [order.id]: event.target.value })}
+                          />
+                        </Field>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
+                            onClick={() => approveOrder(order)}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-clinical-teal px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                          >
+                            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                            Approve
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
+                            onClick={() => rejectOrder(order)}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 rounded-lg border border-clinical-line bg-white p-4">
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Dispensing</h3>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <InfoBlock title="Medication barcode" value={order.doseBarcode ?? "Generate barcode before dispensing"} />
+                          <InfoBlock title="Created by" value={currentUser.name} />
+                          <Field label="Dose taken">
+                            <input className={inputClass} placeholder="Enter dose taken" value={dispensingForm.doseTaken} onChange={(event) => updateDispensingForm(order.id, { doseTaken: event.target.value })} />
+                          </Field>
+                          <Field label="Package">
+                            <select className={inputClass} value={dispensingForm.packageType} onChange={(event) => updateDispensingForm(order.id, { packageType: event.target.value as "Full box" | "Individual bag" })}>
+                              <option>Full box</option>
+                              <option>Individual bag</option>
+                            </select>
+                          </Field>
+                          {dispensingForm.packageType === "Individual bag" ? (
+                            <Field label="Custom dose">
+                              <input className={inputClass} placeholder="Enter custom dose for individual bag" value={dispensingForm.customDose} onChange={(event) => updateDispensingForm(order.id, { customDose: event.target.value })} />
+                            </Field>
+                          ) : null}
+                          <Field label="Scan barcode">
+                            <input className={inputClass} placeholder="Scan barcode to recheck" value={dispensingForm.scanBarcode} onChange={(event) => updateDispensingForm(order.id, { scanBarcode: event.target.value })} />
+                          </Field>
+                        </div>
+                        <div className={`rounded-md border p-3 text-sm ${barcodeMatches ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                          {barcodeMatches ? "Scanned medication barcode matches." : "Scan the generated medication barcode to recheck before dispensing."}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={!canUse(currentUser.role, "Pharmacist") || !["Approved", "Dispensed"].includes(order.status)}
+                            onClick={() => generateMedicationBarcode(order)}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
+                          >
+                            <Barcode className="h-4 w-4" aria-hidden="true" />
+                            Generate Barcode
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Approved" || !barcodeMatches}
+                            onClick={() => dispenseOrder(order)}
+                            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
+                          >
+                            <BadgeCheck className="h-4 w-4" aria-hidden="true" />
+                            Mark Dispensed
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1350,14 +1917,31 @@ export default function Home() {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
             <Section title="Patient Barcode Scan" icon={Barcode}>
               <div className="grid gap-4">
-                <Field label="Patient wristband barcode">
-                  <input
-                    className={inputClass}
-                    placeholder="WRIST-PAT-..."
-                    value={patientScan}
-                    onChange={(event) => setPatientScan(event.target.value)}
-                  />
-                </Field>
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                  <label className="grid gap-1.5 text-sm text-clinical-ink">
+                    <span className="font-bold">Patient wristband barcode</span>
+                    <input
+                      className={inputClass}
+                      placeholder="Paste the patient wristband barcode"
+                      value={patientScan}
+                      onChange={(event) => setPatientScan(event.target.value)}
+                    />
+                  </label>
+                  <div className="grid gap-2">
+                    <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold hover:bg-clinical-panel">
+                      <ImageIcon className="h-4 w-4" aria-hidden="true" />
+                      Upload Picture
+                      <input type="file" accept="image/*" className="sr-only" onChange={handlePatientScanImageUpload} />
+                    </label>
+                    {patientScanImage ? (
+                      <NextImage src={patientScanImage} alt={patientScanImageName || "Patient wristband upload"} width={220} height={112} unoptimized className="h-28 w-full rounded-md border border-clinical-line object-cover" />
+                    ) : (
+                      <div className="grid h-28 place-items-center rounded-md border border-dashed border-clinical-line bg-clinical-panel px-3 text-center text-xs text-clinical-muted">
+                        Wristband picture preview
+                      </div>
+                    )}
+                  </div>
+                </div>
                 <div className="grid gap-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Quick patient scan</p>
                   <div className="flex flex-wrap gap-2">
@@ -1468,56 +2052,56 @@ export default function Home() {
 
         {safeActiveModule === "handover" ? (
           <Section title="Handover Support" icon={Handshake}>
-            {handoverPatient ? (
-              <div className="grid gap-5">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <Field label="Patient">
-                    <select className={inputClass} value={handoverPatient.id} onChange={(event) => setHandoverPatientId(event.target.value)}>
-                      {state.patients.map((patient) => (
-                        <option key={patient.id} value={patient.id}>
-                          {patient.name} - {patient.id}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-                  <button type="button" onClick={() => addHandoverEvent("view")} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold hover:bg-clinical-panel">
-                    <FileClock className="h-4 w-4" aria-hidden="true" />
-                    Log View
-                  </button>
-                </div>
-                <PatientSummary patient={handoverPatient} compact />
-                <div className="grid gap-5 lg:grid-cols-2">
-                  <HandoverPanel title="Active medication orders">
-                    <OrderList orders={activeOrdersForPatient(handoverPatient.id)} />
-                  </HandoverPanel>
-                  <HandoverPanel title="Recently administered">
-                    <AdministrationList administrations={state.administrations.filter((item) => item.patientId === handoverPatient.id).slice(0, 5)} orders={state.orders} />
-                  </HandoverPanel>
-                  <HandoverPanel title="Missed or held">
-                    <OrderList orders={state.orders.filter((order) => order.patientId === handoverPatient.id && order.status === "Missed/Held")} />
-                  </HandoverPanel>
-                  <HandoverPanel title="Pending pharmacy items">
-                    <OrderList orders={state.orders.filter((order) => order.patientId === handoverPatient.id && ["Pharmacy Review", "Approved"].includes(order.status))} />
-                  </HandoverPanel>
-                  <HandoverPanel title="Important alerts">
-                    <AlertList alerts={state.alerts.filter((alert) => alert.patientId === handoverPatient.id)} orders={state.orders} patients={state.patients} compact />
-                  </HandoverPanel>
-                  <HandoverPanel title="Recent timeline">
-                    <Timeline events={handoverPatient.timeline.slice(0, 6)} />
-                  </HandoverPanel>
-                </div>
-                <div className="grid gap-3">
-                  <Field label="Handover note">
-                    <textarea className={`${inputClass} min-h-24`} value={handoverNote} onChange={(event) => setHandoverNote(event.target.value)} />
-                  </Field>
-                  <button type="button" disabled={!handoverNote.trim()} onClick={() => addHandoverEvent("note")} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-md bg-clinical-blue px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">
-                    Add Note
-                  </button>
-                </div>
+            <div className="grid gap-5">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end">
+                <Field label="Patient wristband barcode">
+                  <input className={inputClass} placeholder="Paste the patient wristband barcode" value={handoverBarcode} onChange={(event) => setHandoverBarcode(event.target.value)} />
+                </Field>
+                <Field label="Handover to">
+                  <input className={inputClass} placeholder="Enter nurse name" value={handoverTo} onChange={(event) => setHandoverTo(event.target.value)} />
+                </Field>
+                <button type="button" disabled={!handoverPatient} onClick={() => addHandoverEvent("view")} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold hover:bg-clinical-panel disabled:cursor-not-allowed disabled:text-slate-400">
+                  <FileClock className="h-4 w-4" aria-hidden="true" />
+                  Log View
+                </button>
               </div>
-            ) : (
-              <EmptyState>No patient selected for handover.</EmptyState>
-            )}
+              <div className="grid gap-3 md:grid-cols-2">
+                <InfoBlock title="Created by" value={currentUser.name} />
+                <InfoBlock title="Matched patient" value={handoverPatient ? `${handoverPatient.name} (${handoverPatient.id})` : "No patient matched this barcode"} />
+              </div>
+              {handoverPatient ? (
+                <>
+                  <PatientSummary patient={handoverPatient} compact />
+                  <div className="grid gap-5 lg:grid-cols-2">
+                    <HandoverPanel title="Active medication orders">
+                      <OrderList orders={activeOrdersForPatient(handoverPatient.id)} />
+                    </HandoverPanel>
+                    <HandoverPanel title="Recently administered">
+                      <AdministrationList administrations={state.administrations.filter((item) => item.patientId === handoverPatient.id).slice(0, 5)} orders={state.orders} />
+                    </HandoverPanel>
+                    <HandoverPanel title="Missed or held">
+                      <OrderList orders={state.orders.filter((order) => order.patientId === handoverPatient.id && order.status === "Missed/Held")} />
+                    </HandoverPanel>
+                    <HandoverPanel title="Pending pharmacy items">
+                      <OrderList orders={state.orders.filter((order) => order.patientId === handoverPatient.id && ["Pharmacy Review", "Approved"].includes(order.status))} />
+                    </HandoverPanel>
+                    <HandoverPanel title="Recent timeline">
+                      <Timeline events={handoverPatient.timeline.slice(0, 6)} />
+                    </HandoverPanel>
+                  </div>
+                  <div className="grid gap-3">
+                    <Field label="Handover note">
+                      <textarea className={`${inputClass} min-h-24`} placeholder="Enter handover note" value={handoverNote} onChange={(event) => setHandoverNote(event.target.value)} />
+                    </Field>
+                    <button type="button" disabled={!handoverNote.trim()} onClick={() => addHandoverEvent("note")} className="inline-flex min-h-10 w-fit items-center gap-2 rounded-md bg-clinical-blue px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300">
+                      Add Note
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <EmptyState>Scan a patient wristband barcode to open handover details.</EmptyState>
+              )}
+            </div>
           </Section>
         ) : null}
 
@@ -1616,18 +2200,34 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
     <div className="grid gap-4">
       <div className="grid gap-3 md:grid-cols-3">
         <InfoBlock title="Patient" value={`${patient.name} (${patient.id})`} />
+        <InfoBlock title="Admission type" value={patient.admissionType} />
         <InfoBlock title="DOB / Age" value={`${formatDate(patient.dateOfBirth)} / ${patient.age}`} />
         <InfoBlock title="Wristband barcode" value={patient.barcode} />
+        <InfoBlock title="Gender" value={patient.gender || "Not recorded"} />
+        <InfoBlock title="Nationality" value={patient.nationality || "Not recorded"} />
+        <InfoBlock title="Citizen ID / Passport" value={patient.citizenId || "Not recorded"} />
+        <InfoBlock title="Ethnicity" value={patient.ethnicity || "Not recorded"} />
+        <InfoBlock title="Blood type" value={patient.bloodType || "Not recorded"} />
+        <InfoBlock title="Height" value={patient.heightCm ? `${patient.heightCm} cm` : "Not recorded"} />
         <InfoBlock title="Weight" value={`${patient.weightKg} kg`} />
+        <InfoBlock title="Occupation" value={patient.occupation || "Not recorded"} />
         <InfoBlock title="Renal function" value={`eGFR ${patient.renalFunction}`} />
         <InfoBlock title="Created by" value={`${patient.createdBy} at ${formatDateTime(patient.createdAt)}`} />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
+        <InfoBlock title="Reason for visit" value={patient.reasonForVisit || "Not recorded"} />
+        <InfoBlock title="Recent history" value={patient.recentHistory || "Not recorded"} />
         <InfoBlock title="Allergies" value={patient.allergies.join(", ") || "None recorded"} />
         <InfoBlock title="Adverse drug reactions" value={patient.adverseDrugReactions.join(", ") || "None recorded"} />
         <InfoBlock title="Past medical history" value={patient.pastMedicalHistory.join(", ") || "None recorded"} />
-        <InfoBlock title="Current medications" value={patient.currentMedications.join(", ") || "None recorded"} />
-        <InfoBlock title="Home medications" value={patient.homeMedications.join(", ") || "None recorded"} />
+        <InfoBlock title="Prior disorders" value={patient.priorDisorders.join(", ") || "None recorded"} />
+        <MedicationDetailsTable title="Current Medications" medications={patient.currentMedicationDetails} />
+        <MedicationDetailsTable title="Home Medications" medications={patient.homeMedicationDetails} />
+        <ContactBlock title="Patient personal contacts" contact={patient.patientContact} />
+        <ContactBlock title="Emergency contact" contact={patient.emergencyContact} />
+        <InfoBlock title="Insurance / past EHR" value={patient.insuranceLink || "No link recorded"} />
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border border-clinical-line bg-white p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Labs</p>
           <div className="mt-2 grid gap-2">
@@ -1641,6 +2241,7 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
             ))}
           </div>
         </div>
+        <ScreeningImagePanel images={patient.screeningImages} />
       </div>
       {!compact ? (
         <div>
@@ -1648,6 +2249,65 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
           <Timeline events={patient.timeline} />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ContactBlock({ title, contact }: { title: string; contact: ContactInfo }) {
+  return (
+    <div className="rounded-md border border-clinical-line bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">{title}</p>
+      <div className="mt-2 grid gap-1 text-sm font-medium text-clinical-ink">
+        <span>{contact.phone || "No phone recorded"}</span>
+        <span>{contact.email || "No email recorded"}</span>
+        <span>{contact.address || "No address recorded"}</span>
+      </div>
+    </div>
+  );
+}
+
+function MedicationDetailsTable({ title, medications }: { title: string; medications: MedicationHistoryItem[] }) {
+  if (medications.length === 0) return <InfoBlock title={title} value="None recorded" />;
+  return (
+    <div className="rounded-md border border-clinical-line bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">{title}</p>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[360px] text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-clinical-muted">
+            <tr>
+              <th className="py-1 pr-3">Name</th>
+              <th className="py-1 pr-3">Dose</th>
+              <th className="py-1">Duration used</th>
+            </tr>
+          </thead>
+          <tbody>
+            {medications.map((medication, index) => (
+              <tr key={`${medication.name}-${index}`} className="border-t border-clinical-line">
+                <td className="py-2 pr-3 font-medium">{medication.name || "-"}</td>
+                <td className="py-2 pr-3">{medication.dose || "-"}</td>
+                <td className="py-2">{medication.duration || "-"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ScreeningImagePanel({ images }: { images: string[] }) {
+  return (
+    <div className="rounded-md border border-clinical-line bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Screening images</p>
+      {images.length ? (
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {images.map((image, index) => (
+            <NextImage key={`${image}-${index}`} src={image} alt={`Screening image ${index + 1}`} width={320} height={112} unoptimized className="h-28 w-full rounded-md border border-clinical-line object-cover" />
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-sm font-medium text-clinical-ink">No screening images uploaded</p>
+      )}
     </div>
   );
 }
@@ -1732,7 +2392,7 @@ function OrdersTable({ orders, patients, alerts }: { orders: MedicationOrder[]; 
                   <div className="text-clinical-muted">{order.route} - {order.frequency}</div>
                 </td>
                 <td className="border-b border-clinical-line p-3">{patient?.name ?? order.patientId}</td>
-                <td className="border-b border-clinical-line p-3">{formatDateTime(order.scheduledTime)}</td>
+                <td className="border-b border-clinical-line p-3">{order.scheduleDisplay ?? formatDateTime(order.scheduledTime)}</td>
                 <td className="border-b border-clinical-line p-3"><StatusBadge status={order.status} /></td>
                 <td className="border-b border-clinical-line p-3">
                   {orderAlerts.length ? `${orderAlerts.length} demo alert${orderAlerts.length === 1 ? "" : "s"}` : "None"}
@@ -1807,7 +2467,7 @@ function OrderList({ orders }: { orders: MedicationOrder[] }) {
             <span className="font-semibold">{order.drugName} {order.dose}</span>
             <StatusBadge status={order.status} />
           </div>
-          <p className="mt-1 text-clinical-muted">{order.route} - {order.frequency} - {formatDateTime(order.scheduledTime)}</p>
+          <p className="mt-1 text-clinical-muted">{order.route} - {order.frequency} - {order.scheduleDisplay ?? formatDateTime(order.scheduledTime)}</p>
         </div>
       ))}
     </div>

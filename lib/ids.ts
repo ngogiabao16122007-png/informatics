@@ -10,18 +10,20 @@ export function todayAt(hour: number, minute = 0): string {
 }
 
 export function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
+  return new Intl.DateTimeFormat("vi-VN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    hour12: false
   }).format(new Date(value));
 }
 
 export function formatDate(value: string): string {
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat("vi-VN", {
     year: "numeric",
-    month: "short",
-    day: "numeric"
+    month: "2-digit",
+    day: "2-digit"
   }).format(new Date(value));
 }
