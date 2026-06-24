@@ -138,6 +138,7 @@ export const seedState: DemoState = {
       physicianName: "Lee Chee",
       drugName: "Digoxin",
       dose: "0.125 mg",
+      priority: "Urgent",
       route: "Oral",
       frequency: "Once daily",
       scheduledTime: firstDoseTime,

@@ -99,6 +99,7 @@ export type MedicationOrder = {
   physicianName: string;
   drugName: string;
   dose: string;
+  priority: "Routine" | "Urgent" | "STAT";
   route: string;
   frequency: string;
   scheduledTime: string;

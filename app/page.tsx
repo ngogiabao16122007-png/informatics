@@ -288,14 +288,10 @@ const emptyAdmissionForm = {
   allergies: "",
   adverseDrugReactions: "",
   pastMedicalHistory: "",
-  priorDisorders: "",
-  recentHistory: "",
   currentMedications: "",
   homeMedications: "",
   weightKg: "70",
   renalFunction: "90",
-  potassium: "4.0",
-  creatinine: "0.9",
   patientPhone: "",
   patientEmail: "",
   patientAddress: "",
@@ -309,6 +305,7 @@ type OrderDraft = {
   id: string;
   drugName: string;
   dose: string;
+  priority: MedicationOrder["priority"];
   route: string;
   frequency: string;
   customFrequency: string;
@@ -329,6 +326,7 @@ function createOrderDraft(): OrderDraft {
     id: makeId("DRF"),
     drugName: "",
     dose: "",
+    priority: "Routine",
     route: "Oral",
     frequency: "Once daily",
     customFrequency: "",
@@ -380,6 +378,19 @@ function normalizeRoute(value: string): string {
 
 function normalizeFrequency(value: string): string {
   return frequencyTextMap[value] ?? value;
+}
+
+function priorityRank(priority: MedicationOrder["priority"]): number {
+  const map: Record<MedicationOrder["priority"], number> = {
+    STAT: 0,
+    Urgent: 1,
+    Routine: 2
+  };
+  return map[priority];
+}
+
+function sortOrdersByPriority(orders: MedicationOrder[]): MedicationOrder[] {
+  return [...orders].sort((left, right) => priorityRank(left.priority) - priorityRank(right.priority));
 }
 
 function fallbackContact(): ContactInfo {
@@ -434,6 +445,7 @@ function migrateDemoState(savedState: DemoState): DemoState {
     orders: savedState.orders.map((order) => ({
       ...order,
       physicianName: replaceLegacyText(order.physicianName),
+      priority: order.priority ?? "Routine",
       route: normalizeRoute(order.route),
       frequency: normalizeFrequency(order.frequency),
       scheduledTimes: order.scheduledTimes ?? [order.scheduledTime],
@@ -466,7 +478,7 @@ function migrateDemoState(savedState: DemoState): DemoState {
 }
 
 function calculateAge(dateOfBirth: string): number {
-  const birthDate = new Date(dateOfBirth);
+  const birthDate = new Date(dateOfBirth.replaceAll("/", "-"));
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
   const monthDelta = today.getMonth() - birthDate.getMonth();
@@ -580,6 +592,15 @@ function alertClasses(severity: SafetyAlert["severity"]): string {
   return map[severity];
 }
 
+function priorityClasses(priority: MedicationOrder["priority"]): string {
+  const map: Record<MedicationOrder["priority"], string> = {
+    Routine: "bg-slate-100 text-slate-700 border-slate-300",
+    Urgent: "bg-yellow-50 text-yellow-900 border-yellow-300",
+    STAT: "bg-red-50 text-red-800 border-red-300"
+  };
+  return map[priority];
+}
+
 function evaluateFiveRights(state: DemoState, patientBarcode: string, medBarcode: string): FiveRightsResult {
   const patient = state.patients.find((item) => item.barcode.trim().toLowerCase() === patientBarcode.trim().toLowerCase());
   const order = state.orders.find((item) => item.doseBarcode?.trim().toLowerCase() === medBarcode.trim().toLowerCase());
@@ -610,6 +631,10 @@ function Badge({ children, className }: { children: React.ReactNode; className: 
 
 function StatusBadge({ status }: { status: OrderStatus }) {
   return <Badge className={statusClasses(status)}>{status}</Badge>;
+}
+
+function PriorityBadge({ priority }: { priority: MedicationOrder["priority"] }) {
+  return <Badge className={priorityClasses(priority)}>{priority}</Badge>;
 }
 
 function Section({
@@ -950,14 +975,10 @@ export default function Home() {
       allergies: formText(formData, "allergies"),
       adverseDrugReactions: formText(formData, "adverseDrugReactions"),
       pastMedicalHistory: formText(formData, "pastMedicalHistory"),
-      priorDisorders: formText(formData, "priorDisorders"),
-      recentHistory: formText(formData, "recentHistory"),
       currentMedications: formText(formData, "currentMedications"),
       homeMedications: formText(formData, "homeMedications"),
       weightKg: formText(formData, "weightKg"),
       renalFunction: formText(formData, "renalFunction"),
-      potassium: formText(formData, "potassium"),
-      creatinine: formText(formData, "creatinine"),
       patientPhone: formText(formData, "patientPhone"),
       patientEmail: formText(formData, "patientEmail"),
       patientAddress: formText(formData, "patientAddress"),
@@ -972,8 +993,8 @@ export default function Home() {
       return;
     }
 
-    if (!formValues.name.trim() || !formValues.dateOfBirth || !formValues.weightKg || !formValues.renalFunction) {
-      setAdmissionError("Name, date of birth, weight, and renal function are required.");
+    if (!formValues.name.trim() || !formValues.dateOfBirth || !formValues.citizenId.trim() || !formValues.bloodType.trim() || !formValues.weightKg || !formValues.renalFunction) {
+      setAdmissionError("Name, date of birth, Citizen Identification Card / Passport, blood type, weight, and renal function are required.");
       return;
     }
 
@@ -1000,8 +1021,8 @@ export default function Home() {
       allergies: splitList(formValues.allergies),
       adverseDrugReactions: splitList(formValues.adverseDrugReactions),
       pastMedicalHistory: splitList(formValues.pastMedicalHistory),
-      priorDisorders: splitLines(formValues.priorDisorders),
-      recentHistory: formValues.recentHistory.trim(),
+      priorDisorders: splitList(formValues.pastMedicalHistory),
+      recentHistory: "",
       reasonForVisit: formValues.reasonForVisit.trim(),
       currentMedications: currentMedicationDetails.map((item) => item.name).filter(Boolean),
       homeMedications: homeMedicationDetails.map((item) => item.name).filter(Boolean),
@@ -1009,10 +1030,7 @@ export default function Home() {
       homeMedicationDetails,
       weightKg: Number(formValues.weightKg),
       renalFunction: Number(formValues.renalFunction),
-      labs: [
-        { name: "Potassium", value: Number(formValues.potassium), unit: "mmol/L", flag: Number(formValues.potassium) < 3.5 ? "low" : "normal", collectedAt: timestamp },
-        { name: "Creatinine", value: Number(formValues.creatinine), unit: "mg/dL", flag: Number(formValues.creatinine) > 1.3 ? "high" : "normal", collectedAt: timestamp }
-      ],
+      labs: [],
       patientContact: {
         phone: formValues.patientPhone.trim(),
         email: formValues.patientEmail.trim(),
@@ -1100,6 +1118,7 @@ export default function Home() {
         physicianName: currentUser.name,
         drugName: draft.drugName.trim(),
         dose: draft.dose.trim(),
+        priority: draft.priority,
         route: draft.route.trim(),
         frequency: frequency || "Custom",
         scheduledTime: scheduledTimes[0],
@@ -1115,7 +1134,7 @@ export default function Home() {
       submittedOrders.push(order);
       generatedAlerts.push(...alerts);
       auditEvents.push(
-        createAuditEvent(currentUser, "Order submitted", `Submitted ${order.drugName} ${order.dose} ${order.route} for pharmacy review.`, patient.id, order.id, timestamp),
+        createAuditEvent(currentUser, "Order submitted", `Submitted ${order.priority} priority ${order.drugName} ${order.dose} ${order.route} for pharmacy review.`, patient.id, order.id, timestamp),
         ...alerts.map((alert) => createAuditEvent(currentUser, "Alert generated", `${alert.type}: ${alert.message}`, patient.id, order.id, timestamp))
       );
     });
@@ -1504,7 +1523,7 @@ export default function Home() {
                       <input name="name" className={inputClass} placeholder="Enter patient name" value={admissionForm.name} onChange={(event) => setAdmissionForm({ ...admissionForm, name: event.target.value })} />
                     </Field>
                     <Field label="Date of birth" required>
-                      <input name="dateOfBirth" placeholder="YYYY-MM-DD" className={inputClass} value={admissionForm.dateOfBirth} onChange={(event) => setAdmissionForm({ ...admissionForm, dateOfBirth: event.target.value })} />
+                      <input name="dateOfBirth" placeholder="YYYY/MM/DD" className={inputClass} value={admissionForm.dateOfBirth} onChange={(event) => setAdmissionForm({ ...admissionForm, dateOfBirth: event.target.value })} />
                     </Field>
                     <Field label="Gender">
                       <input name="gender" className={inputClass} placeholder="Enter gender" value={admissionForm.gender} onChange={(event) => setAdmissionForm({ ...admissionForm, gender: event.target.value })} />
@@ -1512,13 +1531,13 @@ export default function Home() {
                     <Field label="Nationality">
                       <input name="nationality" className={inputClass} placeholder="Enter nationality" value={admissionForm.nationality} onChange={(event) => setAdmissionForm({ ...admissionForm, nationality: event.target.value })} />
                     </Field>
-                    <Field label="Citizen Identification Card / Passport">
+                    <Field label="Citizen Identification Card / Passport" required>
                       <input name="citizenId" className={inputClass} placeholder="Enter ID card or passport number" value={admissionForm.citizenId} onChange={(event) => setAdmissionForm({ ...admissionForm, citizenId: event.target.value })} />
                     </Field>
                     <Field label="Ethnicity">
                       <input name="ethnicity" className={inputClass} placeholder="Enter ethnicity" value={admissionForm.ethnicity} onChange={(event) => setAdmissionForm({ ...admissionForm, ethnicity: event.target.value })} />
                     </Field>
-                    <Field label="Blood type">
+                    <Field label="Blood type" required>
                       <input name="bloodType" className={inputClass} placeholder="A+, B+, O-, unknown" value={admissionForm.bloodType} onChange={(event) => setAdmissionForm({ ...admissionForm, bloodType: event.target.value })} />
                     </Field>
                     <Field label="Height (cm)">
@@ -1535,33 +1554,17 @@ export default function Home() {
                     </Field>
                   </div>
                 </div>
-                <Field label="Needs updated what happened that they come to the hospital">
+                <Field label="Reason for visit">
                   <textarea name="reasonForVisit" className={`${inputClass} min-h-20`} placeholder="Describe why the patient came to the hospital now" value={admissionForm.reasonForVisit} onChange={(event) => setAdmissionForm({ ...admissionForm, reasonForVisit: event.target.value })} />
                 </Field>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Prior disorders">
-                    <textarea name="priorDisorders" className={`${inputClass} min-h-24`} placeholder="Enter prior disorders, one per line" value={admissionForm.priorDisorders} onChange={(event) => setAdmissionForm({ ...admissionForm, priorDisorders: event.target.value })} />
-                  </Field>
-                  <Field label="Recent history">
-                    <textarea name="recentHistory" className={`${inputClass} min-h-24`} placeholder="Enter recent history before this admission" value={admissionForm.recentHistory} onChange={(event) => setAdmissionForm({ ...admissionForm, recentHistory: event.target.value })} />
-                  </Field>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Potassium (mmol/L)">
-                    <input name="potassium" type="number" step="0.1" className={inputClass} placeholder="Enter potassium value" value={admissionForm.potassium} onChange={(event) => setAdmissionForm({ ...admissionForm, potassium: event.target.value })} />
-                  </Field>
-                  <Field label="Creatinine (mg/dL)">
-                    <input name="creatinine" type="number" step="0.1" className={inputClass} placeholder="Enter creatinine value" value={admissionForm.creatinine} onChange={(event) => setAdmissionForm({ ...admissionForm, creatinine: event.target.value })} />
-                  </Field>
-                </div>
                 <Field label="Allergies">
                   <input name="allergies" className={inputClass} placeholder="Enter allergies, separated by commas" value={admissionForm.allergies} onChange={(event) => setAdmissionForm({ ...admissionForm, allergies: event.target.value })} />
                 </Field>
                 <Field label="Adverse drug reactions">
                   <input name="adverseDrugReactions" className={inputClass} placeholder="Enter adverse drug reactions" value={admissionForm.adverseDrugReactions} onChange={(event) => setAdmissionForm({ ...admissionForm, adverseDrugReactions: event.target.value })} />
                 </Field>
-                <Field label="Past medical history">
-                  <input name="pastMedicalHistory" className={inputClass} placeholder="Enter past medical history, separated by commas" value={admissionForm.pastMedicalHistory} onChange={(event) => setAdmissionForm({ ...admissionForm, pastMedicalHistory: event.target.value })} />
+                <Field label="Medical history">
+                  <textarea name="pastMedicalHistory" className={`${inputClass} min-h-24`} placeholder="Enter relevant medical history, separated by commas" value={admissionForm.pastMedicalHistory} onChange={(event) => setAdmissionForm({ ...admissionForm, pastMedicalHistory: event.target.value })} />
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Current medications">
@@ -1571,9 +1574,11 @@ export default function Home() {
                     <textarea name="homeMedications" className={`${inputClass} min-h-24`} placeholder="Name | dose | how long taken" value={admissionForm.homeMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, homeMedications: event.target.value })} />
                   </Field>
                 </div>
-                <div>
+                <div className="rounded-lg border border-clinical-line bg-clinical-panel p-4">
                   <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-clinical-muted">Contact list</h3>
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid gap-5 lg:grid-cols-2">
+                    <div className="grid gap-4 rounded-md border border-clinical-line bg-white p-4">
+                      <h4 className="text-sm font-semibold text-clinical-ink">Patient personal contacts</h4>
                     <Field label="Patient phone number">
                       <input name="patientPhone" className={inputClass} placeholder="Enter phone number" value={admissionForm.patientPhone} onChange={(event) => setAdmissionForm({ ...admissionForm, patientPhone: event.target.value })} />
                     </Field>
@@ -1583,6 +1588,9 @@ export default function Home() {
                     <Field label="Patient address">
                       <input name="patientAddress" className={inputClass} placeholder="Enter address" value={admissionForm.patientAddress} onChange={(event) => setAdmissionForm({ ...admissionForm, patientAddress: event.target.value })} />
                     </Field>
+                    </div>
+                    <div className="grid gap-4 rounded-md border border-clinical-line bg-white p-4">
+                      <h4 className="text-sm font-semibold text-clinical-ink">Emergency contact</h4>
                     <Field label="Emergency phone number">
                       <input name="emergencyPhone" className={inputClass} placeholder="Enter emergency phone" value={admissionForm.emergencyPhone} onChange={(event) => setAdmissionForm({ ...admissionForm, emergencyPhone: event.target.value })} />
                     </Field>
@@ -1592,6 +1600,7 @@ export default function Home() {
                     <Field label="Emergency address">
                       <input name="emergencyAddress" className={inputClass} placeholder="Enter emergency address" value={admissionForm.emergencyAddress} onChange={(event) => setAdmissionForm({ ...admissionForm, emergencyAddress: event.target.value })} />
                     </Field>
+                    </div>
                   </div>
                 </div>
                 <Field label="Insurance / past EHR link">
@@ -1706,7 +1715,10 @@ export default function Home() {
                   {orderForm.items.map((item, index) => (
                     <div key={item.id} className="grid gap-4 rounded-lg border border-clinical-line bg-clinical-panel p-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
-                        <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Medication order {index + 1}</h3>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Medication order {index + 1}</h3>
+                          <PriorityBadge priority={item.priority} />
+                        </div>
                         <button
                           type="button"
                           onClick={() => removeOrderDraft(item.id)}
@@ -1722,6 +1734,13 @@ export default function Home() {
                         </Field>
                         <Field label="Dose" required>
                           <input className={inputClass} value={item.dose} onChange={(event) => updateOrderDraft(item.id, { dose: event.target.value })} placeholder="Enter dose, e.g. 0.125 mg" />
+                        </Field>
+                        <Field label="Priority">
+                          <select className={inputClass} value={item.priority} onChange={(event) => updateOrderDraft(item.id, { priority: event.target.value as MedicationOrder["priority"] })}>
+                            <option>Routine</option>
+                            <option>Urgent</option>
+                            <option>STAT</option>
+                          </select>
                         </Field>
                         <Field label="Route" required>
                           <select className={inputClass} value={item.route} onChange={(event) => updateOrderDraft(item.id, { route: event.target.value })}>
@@ -1792,7 +1811,7 @@ export default function Home() {
           <Section title="Pharmacy Verification and Dispensing" icon={Pill}>
             <div className="grid gap-4">
               {state.orders.length === 0 ? <EmptyState>No medication orders yet.</EmptyState> : null}
-              {state.orders.map((order) => {
+              {sortOrdersByPriority(state.orders).map((order) => {
                 const patient = state.patients.find((item) => item.id === order.patientId);
                 const alerts = state.alerts.filter((alert) => order.alertIds.includes(alert.id));
                 const dispensingForm = dispensingForms[order.id] ?? {
@@ -1803,11 +1822,21 @@ export default function Home() {
                 };
                 const barcodeMatches = Boolean(order.doseBarcode && dispensingForm.scanBarcode.trim() === order.doseBarcode);
                 return (
-                  <div key={order.id} className="grid gap-4 rounded-lg border border-clinical-line bg-clinical-panel p-4">
+                  <div
+                    key={order.id}
+                    className={`grid gap-4 rounded-lg border p-4 ${
+                      order.priority === "STAT"
+                        ? "border-red-300 bg-red-50"
+                        : order.priority === "Urgent"
+                          ? "border-yellow-300 bg-yellow-50"
+                          : "border-clinical-line bg-clinical-panel"
+                    }`}
+                  >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-base font-semibold">{order.drugName} {order.dose}</h3>
+                          <PriorityBadge priority={order.priority} />
                           <StatusBadge status={order.status} />
                         </div>
                         <p className="mt-1 text-sm text-clinical-muted">
@@ -2002,9 +2031,9 @@ export default function Home() {
                         {patient.name}
                       </button>
                     ))}
-                    {state.orders.filter((order) => order.doseBarcode).map((order) => (
+                    {sortOrdersByPriority(state.orders.filter((order) => order.doseBarcode)).map((order) => (
                       <button key={order.id} type="button" onClick={() => setMedicationScan(order.doseBarcode ?? "")} className="rounded-md border border-clinical-line bg-white px-3 py-2 text-xs font-semibold hover:bg-clinical-panel">
-                        {order.drugName}
+                        {order.priority} - {order.drugName}
                       </button>
                     ))}
                   </div>
@@ -2042,7 +2071,17 @@ export default function Home() {
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <InfoBlock title="Scanned patient" value={scannedPatient ? `${scannedPatient.name} (${scannedPatient.id})` : "Not matched"} />
-                  <InfoBlock title="Scanned medication" value={scannedOrder ? `${scannedOrder.drugName} ${scannedOrder.dose} (${scannedOrder.status})` : "Not matched"} />
+                  <div className="rounded-md border border-clinical-line bg-white p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Scanned medication</p>
+                    {scannedOrder ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <span className="break-words text-sm font-medium text-clinical-ink">{scannedOrder.drugName} {scannedOrder.dose} ({scannedOrder.status})</span>
+                        <PriorityBadge priority={scannedOrder.priority} />
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-sm font-medium text-clinical-ink">Not matched</p>
+                    )}
+                  </div>
                 </div>
                 <AdministrationTable administrations={state.administrations} orders={state.orders} patients={state.patients} />
               </div>
@@ -2201,7 +2240,7 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
       <div className="grid gap-3 md:grid-cols-3">
         <InfoBlock title="Patient" value={`${patient.name} (${patient.id})`} />
         <InfoBlock title="Admission type" value={patient.admissionType} />
-        <InfoBlock title="DOB / Age" value={`${formatDate(patient.dateOfBirth)} / ${patient.age}`} />
+        <InfoBlock title="Date of birth" value={formatDate(patient.dateOfBirth)} />
         <InfoBlock title="Wristband barcode" value={patient.barcode} />
         <InfoBlock title="Gender" value={patient.gender || "Not recorded"} />
         <InfoBlock title="Nationality" value={patient.nationality || "Not recorded"} />
@@ -2216,11 +2255,9 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <InfoBlock title="Reason for visit" value={patient.reasonForVisit || "Not recorded"} />
-        <InfoBlock title="Recent history" value={patient.recentHistory || "Not recorded"} />
         <InfoBlock title="Allergies" value={patient.allergies.join(", ") || "None recorded"} />
         <InfoBlock title="Adverse drug reactions" value={patient.adverseDrugReactions.join(", ") || "None recorded"} />
-        <InfoBlock title="Past medical history" value={patient.pastMedicalHistory.join(", ") || "None recorded"} />
-        <InfoBlock title="Prior disorders" value={patient.priorDisorders.join(", ") || "None recorded"} />
+        <InfoBlock title="Medical history" value={patient.pastMedicalHistory.join(", ") || patient.priorDisorders.join(", ") || patient.recentHistory || "None recorded"} />
         <MedicationDetailsTable title="Current Medications" medications={patient.currentMedicationDetails} />
         <MedicationDetailsTable title="Home Medications" medications={patient.homeMedicationDetails} />
         <ContactBlock title="Patient personal contacts" contact={patient.patientContact} />
@@ -2229,16 +2266,16 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border border-clinical-line bg-white p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Labs</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Lab results</p>
           <div className="mt-2 grid gap-2">
-            {patient.labs.map((lab) => (
+            {patient.labs.length ? patient.labs.map((lab) => (
               <div key={`${lab.name}-${lab.collectedAt}`} className="flex items-center justify-between gap-3 text-sm">
                 <span className="font-medium">{lab.name}</span>
                 <span>
                   {lab.value} {lab.unit} {lab.flag ? `(${lab.flag})` : ""}
                 </span>
               </div>
-            ))}
+            )) : <p className="text-sm font-medium text-clinical-ink">No lab results recorded</p>}
           </div>
         </div>
         <ScreeningImagePanel images={patient.screeningImages} />
@@ -2369,12 +2406,14 @@ function AlertList({
 
 function OrdersTable({ orders, patients, alerts }: { orders: MedicationOrder[]; patients: Patient[]; alerts: SafetyAlert[] }) {
   if (orders.length === 0) return <EmptyState>No orders submitted.</EmptyState>;
+  const sortedOrders = sortOrdersByPriority(orders);
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-separate border-spacing-0 text-left text-sm">
+      <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left text-sm">
         <thead>
           <tr className="text-xs uppercase tracking-wide text-clinical-muted">
             <th className="border-b border-clinical-line p-3">Order</th>
+            <th className="border-b border-clinical-line p-3">Priority</th>
             <th className="border-b border-clinical-line p-3">Patient</th>
             <th className="border-b border-clinical-line p-3">Schedule</th>
             <th className="border-b border-clinical-line p-3">Status</th>
@@ -2382,7 +2421,7 @@ function OrdersTable({ orders, patients, alerts }: { orders: MedicationOrder[]; 
           </tr>
         </thead>
         <tbody>
-          {orders.map((order) => {
+          {sortedOrders.map((order) => {
             const patient = patients.find((item) => item.id === order.patientId);
             const orderAlerts = alerts.filter((alert) => order.alertIds.includes(alert.id));
             return (
@@ -2391,6 +2430,7 @@ function OrdersTable({ orders, patients, alerts }: { orders: MedicationOrder[]; 
                   <div className="font-semibold">{order.drugName} {order.dose}</div>
                   <div className="text-clinical-muted">{order.route} - {order.frequency}</div>
                 </td>
+                <td className="border-b border-clinical-line p-3"><PriorityBadge priority={order.priority} /></td>
                 <td className="border-b border-clinical-line p-3">{patient?.name ?? order.patientId}</td>
                 <td className="border-b border-clinical-line p-3">{order.scheduleDisplay ?? formatDateTime(order.scheduledTime)}</td>
                 <td className="border-b border-clinical-line p-3"><StatusBadge status={order.status} /></td>
@@ -2459,13 +2499,17 @@ function HandoverPanel({ title, children }: { title: string; children: React.Rea
 
 function OrderList({ orders }: { orders: MedicationOrder[] }) {
   if (orders.length === 0) return <EmptyState>None.</EmptyState>;
+  const sortedOrders = sortOrdersByPriority(orders);
   return (
     <div className="grid gap-2">
-      {orders.map((order) => (
+      {sortedOrders.map((order) => (
         <div key={order.id} className="rounded-md border border-clinical-line bg-white p-3 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="font-semibold">{order.drugName} {order.dose}</span>
-            <StatusBadge status={order.status} />
+            <div className="flex flex-wrap gap-2">
+              <PriorityBadge priority={order.priority} />
+              <StatusBadge status={order.status} />
+            </div>
           </div>
           <p className="mt-1 text-clinical-muted">{order.route} - {order.frequency} - {order.scheduleDisplay ?? formatDateTime(order.scheduledTime)}</p>
         </div>

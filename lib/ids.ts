@@ -17,7 +17,7 @@ export function formatDateTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
-  }).format(new Date(value));
+  }).format(new Date(value.replaceAll("/", "-")));
 }
 
 export function formatDate(value: string): string {
@@ -25,5 +25,5 @@ export function formatDate(value: string): string {
     year: "numeric",
     month: "2-digit",
     day: "2-digit"
-  }).format(new Date(value));
+  }).format(new Date(value.replaceAll("/", "-")));
 }
