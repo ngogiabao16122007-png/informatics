@@ -1,6 +1,8 @@
 import { DemoState, User } from "./types";
 const now = "2026-06-18T02:00:00.000Z";
 const firstDoseTime = "2026-06-18T11:00:00.000Z";
+const secondDoseTime = "2026-06-18T13:00:00.000Z";
+const statDoseTime = "2026-06-18T09:30:00.000Z";
 
 export const demoUsers: User[] = [
   { id: "user-clerk", name: "Bùi Nguyệt Tú", role: "Ward Clerk" },
@@ -145,9 +147,67 @@ export const seedState: DemoState = {
       alertIds: ["ALT-3001", "ALT-3002"],
       createdAt: now,
       updatedAt: now
+    },
+    {
+      id: "ORD-2002",
+      patientId: "PAT-1002",
+      physicianId: "user-physician",
+      physicianName: "Lee Chee",
+      drugName: "Acetaminophen",
+      dose: "500 mg",
+      priority: "Routine",
+      route: "Oral",
+      frequency: "Every 6 hours as needed",
+      scheduledTime: secondDoseTime,
+      scheduledTimes: [secondDoseTime],
+      scheduleDisplay: "18/06/2026 13:00",
+      notes: "Demo pass example for BCMA Five Rights verification.",
+      status: "Dispensed",
+      alertIds: [],
+      pharmacistNotes: "Verified and dispensed for BCMA demo.",
+      doseBarcode: "DOSE-ORD-2002-PASS",
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: "ORD-2003",
+      patientId: "PAT-1001",
+      physicianId: "user-physician",
+      physicianName: "Lee Chee",
+      drugName: "Regular insulin",
+      dose: "4 units",
+      priority: "STAT",
+      route: "Subcutaneous",
+      frequency: "One time dose",
+      scheduledTime: statDoseTime,
+      scheduledTimes: [statDoseTime],
+      scheduleDisplay: "18/06/2026 09:30",
+      notes: "Demo fail example: barcode exists, but the medication has not been dispensed.",
+      status: "Approved",
+      alertIds: [],
+      pharmacistNotes: "Approved; still waiting for final dispensing.",
+      doseBarcode: "DOSE-ORD-2003-FAIL",
+      createdAt: now,
+      updatedAt: now
     }
   ],
-  dispenses: [],
+  dispenses: [
+    {
+      id: "DSP-5001",
+      patientId: "PAT-1002",
+      orderId: "ORD-2002",
+      medicationBarcode: "DOSE-ORD-2002-PASS",
+      doseTaken: "500 mg",
+      packageType: "Individual bag",
+      customDose: "",
+      scannedBarcode: "DOSE-ORD-2002-PASS",
+      createdBy: "Minhh Ann",
+      preparedBy: "Minhh Ann",
+      preparedAt: now,
+      dispensedAt: now,
+      notes: "Seeded demo dose that passes BCMA Five Rights."
+    }
+  ],
   administrations: [],
   alerts: [
     {

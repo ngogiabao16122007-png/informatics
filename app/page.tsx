@@ -431,10 +431,30 @@ function normalizePatient(patient: Patient): Patient {
   };
 }
 
-function migrateDemoState(savedState: DemoState): DemoState {
+function includeSeededFiveRightsExamples(savedState: DemoState): DemoState {
+  const examplePatientIds = new Set(["PAT-1001", "PAT-1002"]);
+  const exampleOrderIds = new Set(["ORD-2002", "ORD-2003"]);
+  const exampleDispenseIds = new Set(["DSP-5001"]);
+  const missingPatients = seedState.patients.filter((patient) => examplePatientIds.has(patient.id) && !savedState.patients.some((item) => item.id === patient.id));
+  const missingOrders = seedState.orders.filter((order) => exampleOrderIds.has(order.id) && !savedState.orders.some((item) => item.id === order.id));
+  const missingDispenses = seedState.dispenses.filter((dispense) => exampleDispenseIds.has(dispense.id) && !savedState.dispenses.some((item) => item.id === dispense.id));
+
+  if (missingPatients.length === 0 && missingOrders.length === 0 && missingDispenses.length === 0) return savedState;
+
   return {
     ...savedState,
-    patients: savedState.patients.map((patient) => {
+    patients: [...savedState.patients, ...missingPatients],
+    orders: [...savedState.orders, ...missingOrders],
+    dispenses: [...savedState.dispenses, ...missingDispenses]
+  };
+}
+
+function migrateDemoState(savedState: DemoState): DemoState {
+  const stateWithExamples = includeSeededFiveRightsExamples(savedState);
+
+  return {
+    ...stateWithExamples,
+    patients: stateWithExamples.patients.map((patient) => {
       const normalizedPatient = normalizePatient(patient);
       return {
       ...normalizedPatient,
@@ -446,7 +466,7 @@ function migrateDemoState(savedState: DemoState): DemoState {
       }))
     };
     }),
-    orders: savedState.orders.map((order) => ({
+    orders: stateWithExamples.orders.map((order) => ({
       ...order,
       physicianName: replaceLegacyText(order.physicianName),
       priority: order.priority ?? "Routine",
@@ -455,15 +475,15 @@ function migrateDemoState(savedState: DemoState): DemoState {
       scheduledTimes: order.scheduledTimes ?? [order.scheduledTime],
       scheduleDisplay: order.scheduleDisplay ?? formatDateTime(order.scheduledTime)
     })),
-    dispenses: savedState.dispenses.map((dispense) => ({
+    dispenses: stateWithExamples.dispenses.map((dispense) => ({
       ...dispense,
       preparedBy: replaceLegacyText(dispense.preparedBy)
     })),
-    administrations: savedState.administrations.map((administration) => ({
+    administrations: stateWithExamples.administrations.map((administration) => ({
       ...administration,
       nurseName: replaceLegacyText(administration.nurseName)
     })),
-    auditEvents: savedState.auditEvents.map((event) => ({
+    auditEvents: stateWithExamples.auditEvents.map((event) => ({
       ...event,
       userName: replaceLegacyText(event.userName),
       description: replaceLegacyText(event.description)
@@ -629,6 +649,17 @@ function evaluateFiveRights(state: DemoState, patientBarcode: string, medBarcode
   return { rightPatient, rightDrug, rightDose, rightRoute, rightTime, messages };
 }
 
+function findFiveRightsExample(state: DemoState, mode: "pass" | "fail") {
+  const order = state.orders.find((item) => {
+    const hasPatient = state.patients.some((patient) => patient.id === item.patientId);
+    if (!item.doseBarcode || !hasPatient) return false;
+    return mode === "pass" ? item.status === "Dispensed" : item.status !== "Dispensed";
+  });
+  const patient = order ? state.patients.find((item) => item.id === order.patientId) : undefined;
+
+  return order && patient ? { order, patient } : null;
+}
+
 function Badge({ children, className }: { children: React.ReactNode; className: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${className}`}>{children}</span>;
 }
@@ -706,13 +737,13 @@ function RoleDescriptionPanel({
 
   return (
     <section className="rounded-lg border border-clinical-line bg-white p-5 shadow-soft">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="max-w-3xl">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,0.55fr)] xl:items-start">
+        <div className="min-w-0">
           <Badge className="border-clinical-line bg-clinical-panel text-clinical-muted">{role}</Badge>
           <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{description.title}</h2>
           <p className="mt-2 text-sm leading-6 text-clinical-muted">{description.description}</p>
         </div>
-        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-xl">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
           {description.checkpoints.map((checkpoint) => (
             <span key={checkpoint} className="flex min-h-9 items-center justify-center rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-center text-xs font-semibold text-teal-800">
               {checkpoint}
@@ -725,6 +756,7 @@ function RoleDescriptionPanel({
 }
 
 export default function Home() {
+  const initialFiveRightsPassExample = findFiveRightsExample(seedState, "pass");
   const [state, setState] = useState<DemoState>(seedState);
   const [hydrated, setHydrated] = useState(false);
   const [currentUserId, setCurrentUserId] = useState(demoUsers[0].id);
@@ -736,11 +768,11 @@ export default function Home() {
   const [admissionError, setAdmissionError] = useState("");
   const [pharmacyNotes, setPharmacyNotes] = useState<Record<string, string>>({});
   const [dispensingForms, setDispensingForms] = useState<Record<string, { doseTaken: string; packageType: "Full box" | "Individual bag"; customDose: string; scanBarcode: string }>>({});
-  const [patientScan, setPatientScan] = useState(seedState.patients[0]?.barcode ?? "");
+  const [patientScan, setPatientScan] = useState(initialFiveRightsPassExample?.patient.barcode ?? seedState.patients[0]?.barcode ?? "");
   const [patientScanImage, setPatientScanImage] = useState("");
   const [patientScanImageName, setPatientScanImageName] = useState("");
   const [admissionScreeningImages, setAdmissionScreeningImages] = useState<string[]>([]);
-  const [medicationScan, setMedicationScan] = useState("");
+  const [medicationScan, setMedicationScan] = useState(initialFiveRightsPassExample?.order.doseBarcode ?? "");
   const [administrationNote, setAdministrationNote] = useState("");
   const [handoverBarcode, setHandoverBarcode] = useState(seedState.patients[0]?.barcode ?? "");
   const [handoverTo, setHandoverTo] = useState("");
@@ -769,10 +801,12 @@ export default function Home() {
     if (saved) {
       try {
         const parsed = migrateDemoState(JSON.parse(saved) as DemoState);
+        const savedPassExample = findFiveRightsExample(parsed, "pass");
         setState(parsed);
         setSelectedPatientId(parsed.patients[0]?.id ?? "");
         setOrderForm((form) => ({ ...form, patientId: parsed.patients[0]?.id ?? "" }));
-        setPatientScan(parsed.patients[0]?.barcode ?? "");
+        setPatientScan(savedPassExample?.patient.barcode ?? parsed.patients[0]?.barcode ?? "");
+        setMedicationScan(savedPassExample?.order.doseBarcode ?? "");
         setHandoverBarcode(parsed.patients[0]?.barcode ?? "");
       } catch {
         window.localStorage.removeItem(storageKey);
@@ -1246,6 +1280,15 @@ export default function Home() {
   const fiveRights = useMemo(() => evaluateFiveRights(state, patientScan, medicationScan), [state, patientScan, medicationScan]);
   const scannedOrder = state.orders.find((order) => order.doseBarcode?.trim().toLowerCase() === medicationScan.trim().toLowerCase());
   const fiveRightsPass = fiveRights.rightPatient && fiveRights.rightDrug && fiveRights.rightDose && fiveRights.rightRoute && fiveRights.rightTime;
+  const fiveRightsPassExample = findFiveRightsExample(state, "pass");
+  const fiveRightsFailExample = findFiveRightsExample(state, "fail");
+
+  function applyFiveRightsExample(mode: "pass" | "fail") {
+    const example = findFiveRightsExample(state, mode);
+    if (!example) return;
+    setPatientScan(example.patient.barcode);
+    setMedicationScan(example.order.doseBarcode ?? "");
+  }
 
   function recordAdministration(status: AdministrationStatus) {
     if (!canUse(currentUser.role, "Nurse") || !fiveRightsPass || !scannedOrder || !scannedPatient || !scannedOrder.doseBarcode) return;
@@ -1331,15 +1374,16 @@ export default function Home() {
   }
 
   function resetDemo() {
+    const seedPassExample = findFiveRightsExample(seedState, "pass");
     window.localStorage.removeItem(storageKey);
     setState(seedState);
     setSelectedPatientId(seedState.patients[0]?.id ?? "");
     setOrderForm({ ...emptyOrderForm, patientId: seedState.patients[0]?.id ?? "" });
-    setPatientScan(seedState.patients[0]?.barcode ?? "");
+    setPatientScan(seedPassExample?.patient.barcode ?? seedState.patients[0]?.barcode ?? "");
     setPatientScanImage("");
     setPatientScanImageName("");
     setAdmissionScreeningImages([]);
-    setMedicationScan("");
+    setMedicationScan(seedPassExample?.order.doseBarcode ?? "");
     setHandoverBarcode(seedState.patients[0]?.barcode ?? "");
     setHandoverTo("");
     setActiveModule(defaultWorkspace[currentUser.role]);
@@ -2037,6 +2081,36 @@ export default function Home() {
                     ))}
                   </div>
                 </div>
+                {(fiveRightsPassExample || fiveRightsFailExample) ? (
+                  <div className="grid gap-3 rounded-md border border-blue-200 bg-blue-50 p-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-blue-900">Five Rights demo examples</p>
+                      <p className="mt-1 text-sm leading-6 text-blue-900">
+                        Pass means the wristband barcode matches the medication barcode, and the medication order has already been dispensed.
+                      </p>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {fiveRightsPassExample ? (
+                        <button
+                          type="button"
+                          onClick={() => applyFiveRightsExample("pass")}
+                          className="rounded-md border border-green-300 bg-white px-3 py-2 text-left text-xs font-semibold text-green-800 hover:bg-green-50"
+                        >
+                          Pass: {fiveRightsPassExample.patient.name} + {fiveRightsPassExample.order.doseBarcode}
+                        </button>
+                      ) : null}
+                      {fiveRightsFailExample ? (
+                        <button
+                          type="button"
+                          onClick={() => applyFiveRightsExample("fail")}
+                          className="rounded-md border border-red-300 bg-white px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50"
+                        >
+                          Fail: {fiveRightsFailExample.patient.name} + {fiveRightsFailExample.order.doseBarcode}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <Field label="Administration note">
                   <textarea className={`${inputClass} min-h-20`} value={administrationNote} onChange={(event) => setAdministrationNote(event.target.value)} />
                 </Field>
@@ -2196,25 +2270,27 @@ function DemoWorkflowGuide({
           const moduleLabel = modules.find((moduleItem) => moduleItem.id === step.moduleId)?.label ?? step.moduleId;
           return (
             <section key={step.id} className="rounded-lg border border-clinical-line bg-white p-5 shadow-soft">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="border-clinical-line bg-clinical-panel text-clinical-muted">Step {index + 1}</Badge>
-                    <Badge className="border-blue-200 bg-blue-50 text-blue-800">{step.role}</Badge>
+              <div className="grid gap-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="border-clinical-line bg-clinical-panel text-clinical-muted">Step {index + 1}</Badge>
+                      <Badge className="border-blue-200 bg-blue-50 text-blue-800">{step.role}</Badge>
+                    </div>
+                    <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{step.title}</h2>
                   </div>
-                  <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{step.title}</h2>
-                  <div className="mt-3 grid gap-3 md:grid-cols-2">
-                    <InfoBlock title="Action" value={step.action} />
-                    <InfoBlock title="Expected result" value={step.result} />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onOpenModule(step.moduleId)}
+                    className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink shadow-sm hover:bg-clinical-panel"
+                  >
+                    Open {moduleLabel}
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => onOpenModule(step.moduleId)}
-                  className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink shadow-sm hover:bg-clinical-panel"
-                >
-                  Open {moduleLabel}
-                </button>
+                <div className="grid items-stretch gap-3 md:grid-cols-2">
+                  <InfoBlock title="Action" value={step.action} />
+                  <InfoBlock title="Expected result" value={step.result} />
+                </div>
               </div>
             </section>
           );
@@ -2226,7 +2302,7 @@ function DemoWorkflowGuide({
 
 function InfoBlock({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-md border border-clinical-line bg-white p-3">
+    <div className="h-full rounded-md border border-clinical-line bg-white p-3">
       <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">{title}</p>
       <p className="mt-1 break-words text-sm font-medium text-clinical-ink">{value}</p>
     </div>
