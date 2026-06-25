@@ -2006,14 +2006,14 @@ export default function Home() {
                     <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
                       <div className="grid gap-2 rounded-lg border border-clinical-line bg-white p-3">
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Verification</h3>
-                        <ControlBlock title="Verification status">
+                        <ControlBlock title="Verification status" className="min-h-[132px]">
                           {alerts.length ? (
                             <AlertList alerts={alerts} orders={state.orders} patients={state.patients} compact />
                           ) : (
                             <p className="text-sm font-medium text-clinical-muted">No demo safety alerts.</p>
                           )}
                         </ControlBlock>
-                        <ControlBlock title="Pharmacist notes">
+                        <ControlBlock title="Pharmacist notes" className="min-h-[132px]">
                           <textarea
                             className={`${inputClass} min-h-20 w-full`}
                             placeholder="Enter verification notes"
@@ -2026,7 +2026,7 @@ export default function Home() {
                             type="button"
                             disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
                             onClick={() => approveOrder(order)}
-                            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-clinical-teal px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                            className="inline-flex min-h-8 w-24 items-center justify-center gap-1.5 rounded-md bg-clinical-teal px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                           >
                             <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                             Approve
@@ -2035,7 +2035,7 @@ export default function Home() {
                             type="button"
                             disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
                             onClick={() => rejectOrder(order)}
-                            className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                            className="inline-flex min-h-8 w-24 items-center justify-center gap-1.5 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                           >
                             Reject
                           </button>
