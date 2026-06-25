@@ -20,8 +20,8 @@ import {
   UserPlus
 } from "lucide-react";
 import NextImage from "next/image";
-import QRCode from "qrcode";
-import jsQR from "jsqr";
+import JsBarcode from "jsbarcode";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { formatDate, formatDateTime, makeId } from "../lib/ids";
 import { runDemoSafetyChecks } from "../lib/safety";
@@ -731,35 +731,17 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-function decodeQrFromDataUrl(dataUrl: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = image.naturalWidth || image.width;
-      canvas.height = image.naturalHeight || image.height;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        reject(new Error("Unable to inspect this image."));
-        return;
-      }
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-      const result = jsQR(imageData.data, imageData.width, imageData.height);
-      if (!result?.data) {
-        reject(new Error("No readable QR code found in this image."));
-        return;
-      }
-      resolve(result.data);
-    };
-    image.onerror = () => reject(new Error("Unable to load this image."));
-    image.src = dataUrl;
-  });
+async function decodeBarcodeFromDataUrl(dataUrl: string): Promise<string> {
+  const reader = new BrowserMultiFormatReader();
+  const result = await reader.decodeFromImageUrl(dataUrl);
+  const value = result.getText();
+  if (!value) throw new Error("No readable barcode found in this image.");
+  return value;
 }
 
-async function decodeQrUpload(file: File) {
+async function decodeBarcodeUpload(file: File) {
   const dataUrl = await readFileAsDataUrl(file);
-  const value = await decodeQrFromDataUrl(dataUrl);
+  const value = await decodeBarcodeFromDataUrl(dataUrl);
   return { dataUrl, value };
 }
 
@@ -822,7 +804,7 @@ export default function Home() {
   const [handoverBarcode, setHandoverBarcode] = useState(seedState.patients[0]?.barcode ?? "");
   const [handoverTo, setHandoverTo] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
-  const [pharmacyQrMessages, setPharmacyQrMessages] = useState<Record<string, string>>({});
+  const [pharmacyBarcodeMessages, setPharmacyBarcodeMessages] = useState<Record<string, string>>({});
   const [pharmacyDispenseMessages, setPharmacyDispenseMessages] = useState<Record<string, string>>({});
   const [pendingDeletePatientId, setPendingDeletePatientId] = useState<string | null>(null);
 
@@ -966,46 +948,63 @@ export default function Home() {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     try {
-      const result = await decodeQrUpload(file);
+      const result = await decodeBarcodeUpload(file);
+      const matchedPatient = state.patients.find((patient) => patient.barcode.trim().toLowerCase() === result.value.trim().toLowerCase());
       setPatientScan(result.value);
       setPatientScanImage(result.dataUrl);
       setPatientScanImageName(file.name);
-      setPatientScanMessage(`QR scanned: ${result.value}`);
+      setPatientScanMessage(
+        matchedPatient
+          ? `Barcode scanned: ${result.value}. Matched patient: ${matchedPatient.name} (${matchedPatient.id}).`
+          : `Barcode scanned: ${result.value}. No matching patient profile was found.`
+      );
     } catch (error) {
       const dataUrl = await readFileAsDataUrl(file);
       setPatientScanImage(dataUrl);
       setPatientScanImageName(file.name);
-      setPatientScanMessage(error instanceof Error ? error.message : "No readable QR code found in this image.");
+      setPatientScanMessage(error instanceof Error ? error.message : "No readable barcode found in this image.");
     } finally {
       event.currentTarget.value = "";
     }
   }
 
-  async function handleMedicationScanQrUpload(event: ChangeEvent<HTMLInputElement>) {
+  async function handleMedicationScanBarcodeUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     try {
-      const result = await decodeQrUpload(file);
+      const result = await decodeBarcodeUpload(file);
+      const matchedOrder = state.orders.find((order) => order.doseBarcode?.trim().toLowerCase() === result.value.trim().toLowerCase());
+      const matchedPatient = matchedOrder ? state.patients.find((patient) => patient.id === matchedOrder.patientId) : undefined;
       setMedicationScan(result.value);
-      setMedicationScanMessage(`QR scanned: ${result.value}`);
+      setMedicationScanMessage(
+        matchedOrder
+          ? `Barcode scanned: ${result.value}. Matched medication: ${matchedOrder.drugName} ${matchedOrder.dose} for ${matchedPatient?.name ?? "the selected patient"}.`
+          : `Barcode scanned: ${result.value}. No matching medication order was found.`
+      );
     } catch (error) {
-      setMedicationScanMessage(error instanceof Error ? error.message : "No readable QR code found in this image.");
+      setMedicationScanMessage(error instanceof Error ? error.message : "No readable barcode found in this image.");
     } finally {
       event.currentTarget.value = "";
     }
   }
 
-  async function handlePharmacyQrUpload(orderId: string, event: ChangeEvent<HTMLInputElement>) {
+  async function handlePharmacyBarcodeUpload(orderId: string, event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
     try {
-      const result = await decodeQrUpload(file);
+      const result = await decodeBarcodeUpload(file);
+      const matchedOrder = state.orders.find((order) => order.doseBarcode?.trim().toLowerCase() === result.value.trim().toLowerCase());
       updateDispensingForm(orderId, { scanBarcode: result.value });
-      setPharmacyQrMessages((messages) => ({ ...messages, [orderId]: `QR scanned: ${result.value}` }));
-    } catch (error) {
-      setPharmacyQrMessages((messages) => ({
+      setPharmacyBarcodeMessages((messages) => ({
         ...messages,
-        [orderId]: error instanceof Error ? error.message : "No readable QR code found in this image."
+        [orderId]: matchedOrder
+          ? `Barcode scanned: ${result.value}. Matched medication: ${matchedOrder.drugName} ${matchedOrder.dose}.`
+          : `Barcode scanned: ${result.value}. No matching medication order was found.`
+      }));
+    } catch (error) {
+      setPharmacyBarcodeMessages((messages) => ({
+        ...messages,
+        [orderId]: error instanceof Error ? error.message : "No readable barcode found in this image."
       }));
     } finally {
       event.currentTarget.value = "";
@@ -1475,7 +1474,7 @@ export default function Home() {
     setAdmissionScreeningImages([]);
     setMedicationScan(seedPassExample?.order.doseBarcode ?? "");
     setMedicationScanMessage("");
-    setPharmacyQrMessages({});
+    setPharmacyBarcodeMessages({});
     setPharmacyDispenseMessages({});
     setHandoverBarcode(seedState.patients[0]?.barcode ?? "");
     setHandoverTo("");
@@ -1986,8 +1985,8 @@ export default function Home() {
                       <div className="grid gap-3 text-sm">
                         <MedicationDetailsTable title="Current Medications" medications={patient.currentMedicationDetails} />
                         <div className="grid gap-3 md:grid-cols-3">
-                        <InfoBlock title="Allergies" value={patient.allergies.join(", ") || "None recorded"} />
-                        <InfoBlock title="Renal function" value={`eGFR ${patient.renalFunction}`} />
+                          <InfoBlock title="Allergies" value={patient.allergies.join(", ") || "None recorded"} />
+                          <InfoBlock title="Renal function" value={`eGFR ${patient.renalFunction}`} />
                           <InfoBlock title="Created by" value={patient.createdBy} />
                         </div>
                       </div>
@@ -1996,14 +1995,14 @@ export default function Home() {
                       <div className="grid gap-3 rounded-lg border border-clinical-line bg-white p-4">
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Verification</h3>
                         <AlertList alerts={alerts} orders={state.orders} patients={state.patients} compact />
-                        <Field label="Pharmacist notes">
+                        <ControlBlock title="Pharmacist notes">
                           <textarea
-                            className={`${inputClass} min-h-20`}
+                            className={`${inputClass} min-h-20 w-full`}
                             placeholder="Enter verification notes"
                             value={pharmacyNotes[order.id] ?? order.pharmacistNotes ?? ""}
                             onChange={(event) => setPharmacyNotes({ ...pharmacyNotes, [order.id]: event.target.value })}
                           />
-                        </Field>
+                        </ControlBlock>
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -2029,28 +2028,28 @@ export default function Home() {
                         <div className="grid gap-3 sm:grid-cols-2">
                           <InfoBlock title="Medication barcode" value={order.doseBarcode ?? "Generate barcode before dispensing"} />
                           <InfoBlock title="Created by" value={currentUser.name} />
-                          <QrCodePreview title="Medication QR code" value={order.doseBarcode} caption={`${order.drugName} ${order.dose}`} />
-                          <Field label="Dose taken">
-                            <input className={inputClass} placeholder="Enter dose taken" value={dispensingForm.doseTaken} onChange={(event) => updateDispensingForm(order.id, { doseTaken: event.target.value })} />
-                          </Field>
-                          <Field label="Package">
-                            <select className={inputClass} value={dispensingForm.packageType} onChange={(event) => updateDispensingForm(order.id, { packageType: event.target.value as "Full box" | "Individual bag" })}>
+                          <BarcodePreview title="Medication barcode" value={order.doseBarcode} caption={`${order.drugName} ${order.dose}`} />
+                          <ControlBlock title="Dose taken">
+                            <input className={`${inputClass} w-full`} placeholder="Enter dose taken" value={dispensingForm.doseTaken} onChange={(event) => updateDispensingForm(order.id, { doseTaken: event.target.value })} />
+                          </ControlBlock>
+                          <ControlBlock title="Package">
+                            <select className={`${inputClass} w-full`} value={dispensingForm.packageType} onChange={(event) => updateDispensingForm(order.id, { packageType: event.target.value as "Full box" | "Individual bag" })}>
                               <option>Full box</option>
                               <option>Individual bag</option>
                             </select>
-                          </Field>
+                          </ControlBlock>
                           {dispensingForm.packageType === "Individual bag" ? (
-                            <Field label="Custom dose">
-                              <input className={inputClass} placeholder="Enter custom dose for individual bag" value={dispensingForm.customDose} onChange={(event) => updateDispensingForm(order.id, { customDose: event.target.value })} />
-                            </Field>
+                            <ControlBlock title="Custom dose">
+                              <input className={`${inputClass} w-full`} placeholder="Enter custom dose for individual bag" value={dispensingForm.customDose} onChange={(event) => updateDispensingForm(order.id, { customDose: event.target.value })} />
+                            </ControlBlock>
                           ) : null}
-                          <Field label="Scan barcode">
-                            <input className={inputClass} placeholder="Scan barcode to recheck" value={dispensingForm.scanBarcode} onChange={(event) => updateDispensingForm(order.id, { scanBarcode: event.target.value })} />
-                          </Field>
-                          <div className="grid gap-1.5 self-end">
-                            <QrUploadLabel label="Upload medication QR" onChange={(event) => handlePharmacyQrUpload(order.id, event)} />
-                            {pharmacyQrMessages[order.id] ? <p className="text-xs text-clinical-muted">{pharmacyQrMessages[order.id]}</p> : null}
-                          </div>
+                          <ControlBlock title="Scan barcode" className="sm:col-span-2">
+                            <input className={`${inputClass} w-full`} placeholder="Scan barcode to recheck" value={dispensingForm.scanBarcode} onChange={(event) => updateDispensingForm(order.id, { scanBarcode: event.target.value })} />
+                            <div className="mt-2 grid gap-1.5">
+                            <BarcodeUploadLabel label="Upload medication barcode" onChange={(event) => handlePharmacyBarcodeUpload(order.id, event)} />
+                            {pharmacyBarcodeMessages[order.id] ? <p className="text-xs text-clinical-muted">{pharmacyBarcodeMessages[order.id]}</p> : null}
+                            </div>
+                          </ControlBlock>
                         </div>
                         <div className={`rounded-md border p-3 text-sm ${barcodeMatches ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
                           {barcodeMatches ? "Scanned medication barcode matches." : "Scan the generated medication barcode to recheck before dispensing."}
@@ -2093,31 +2092,31 @@ export default function Home() {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
             <Section title="Patient Barcode Scan" icon={Barcode}>
               <div className="grid gap-4">
-                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_160px] md:items-start">
-                  <label className="grid gap-2 text-sm text-clinical-ink md:grid-cols-[190px_minmax(0,1fr)] md:items-start">
-                    <span className="pt-2 font-bold">Patient wristband barcode</span>
+                <div className="grid gap-3">
+                  <label className="grid gap-2 text-sm text-clinical-ink">
+                    <span className="text-base font-bold">Patient wristband barcode</span>
                     <input
-                      className={inputClass}
+                      className={`${inputClass} min-h-12 text-base`}
                       placeholder="Paste the patient wristband barcode"
                       value={patientScan}
                       onChange={(event) => setPatientScan(event.target.value)}
                     />
                   </label>
-                  <div className="grid gap-2">
-                    <label className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-2 py-1.5 text-xs font-semibold hover:bg-clinical-panel">
+                  <div className="grid gap-3 sm:grid-cols-[minmax(0,220px)_minmax(0,1fr)] sm:items-start">
+                    <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold hover:bg-clinical-panel">
                       <ImageIcon className="h-4 w-4" aria-hidden="true" />
-                      Upload QR / Picture
+                      Upload Barcode Picture
                       <input type="file" accept="image/*" className="sr-only" onChange={handlePatientScanImageUpload} />
                     </label>
                     {patientScanImage ? (
-                      <NextImage src={patientScanImage} alt={patientScanImageName || "Patient wristband upload"} width={160} height={80} unoptimized className="h-20 w-full rounded-md border border-clinical-line object-cover" />
+                      <NextImage src={patientScanImage} alt={patientScanImageName || "Patient wristband upload"} width={320} height={96} unoptimized className="h-24 w-full rounded-md border border-clinical-line object-cover" />
                     ) : (
-                      <div className="grid h-20 place-items-center rounded-md border border-dashed border-clinical-line bg-clinical-panel px-2 text-center text-xs text-clinical-muted">
+                      <div className="grid h-24 place-items-center rounded-md border border-dashed border-clinical-line bg-clinical-panel px-3 text-center text-xs text-clinical-muted">
                         Wristband picture preview
                       </div>
                     )}
-                    {patientScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{patientScanMessage}</p> : null}
                   </div>
+                  {patientScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{patientScanMessage}</p> : null}
                 </div>
                 <div className="grid gap-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Quick patient scan</p>
@@ -2170,14 +2169,14 @@ export default function Home() {
                   <Field label="Patient barcode">
                     <input className={inputClass} value={patientScan} onChange={(event) => setPatientScan(event.target.value)} />
                   </Field>
-                  <QrUploadLabel label="Upload patient QR" onChange={handlePatientScanImageUpload} />
+                  <BarcodeUploadLabel label="Upload patient barcode" onChange={handlePatientScanImageUpload} />
                 </div>
                 {patientScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{patientScanMessage}</p> : null}
                 <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                   <Field label="Medication dose barcode">
                     <input className={inputClass} value={medicationScan} onChange={(event) => setMedicationScan(event.target.value)} />
                   </Field>
-                  <QrUploadLabel label="Upload medication QR" onChange={handleMedicationScanQrUpload} />
+                  <BarcodeUploadLabel label="Upload medication barcode" onChange={handleMedicationScanBarcodeUpload} />
                 </div>
                 {medicationScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{medicationScanMessage}</p> : null}
                 <div className="grid gap-2">
@@ -2422,65 +2421,87 @@ function DemoWorkflowGuide({
   );
 }
 
-function InfoBlock({ title, value }: { title: string; value: string }) {
+function InfoBlock({ title, value, className = "" }: { title: string; value: string; className?: string }) {
   return (
-    <div className="h-full rounded-md border border-clinical-line bg-white p-3">
+    <div className={`h-full rounded-md border border-clinical-line bg-white p-3 ${className}`}>
       <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">{title}</p>
       <p className="mt-1 break-words text-sm font-medium text-clinical-ink">{value}</p>
     </div>
   );
 }
 
-function QrCodePreview({
+function ControlBlock({
+  title,
+  children,
+  className = ""
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`h-full rounded-md border border-clinical-line bg-white p-3 ${className}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">{title}</p>
+      <div className="mt-2">{children}</div>
+    </div>
+  );
+}
+
+function BarcodePreview({
   value,
   title,
-  caption
+  caption,
+  className = ""
 }: {
   value?: string;
   title: string;
   caption?: string;
+  className?: string;
 }) {
-  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [barcodeDataUrl, setBarcodeDataUrl] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
     if (!value) {
-      setQrDataUrl("");
+      setBarcodeDataUrl("");
       return;
     }
 
-    QRCode.toDataURL(value, { errorCorrectionLevel: "M", margin: 1, width: 144 })
-      .then((dataUrl) => {
-        if (!cancelled) setQrDataUrl(dataUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setQrDataUrl("");
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    try {
+      JsBarcode(svg, value, {
+        format: "CODE128",
+        displayValue: true,
+        fontSize: 14,
+        height: 56,
+        margin: 8,
+        width: 1.8
       });
-
-    return () => {
-      cancelled = true;
-    };
+      const svgText = new XMLSerializer().serializeToString(svg);
+      setBarcodeDataUrl(`data:image/svg+xml;base64,${window.btoa(unescape(encodeURIComponent(svgText)))}`);
+    } catch {
+      setBarcodeDataUrl("");
+    }
   }, [value]);
 
   return (
-    <div className="h-full rounded-md border border-clinical-line bg-white p-3">
+    <div className={`h-full rounded-md border border-clinical-line bg-white p-3 ${className}`}>
       <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">{title}</p>
-      {value && qrDataUrl ? (
-        <div className="mt-2 flex items-center gap-3">
-          <NextImage src={qrDataUrl} alt={`${title} for ${value}`} width={96} height={96} unoptimized className="h-24 w-24 rounded-md border border-clinical-line bg-white p-1" />
+      {value && barcodeDataUrl ? (
+        <div className="mt-2 grid gap-2">
+          <NextImage src={barcodeDataUrl} alt={`${title} for ${value}`} width={340} height={112} unoptimized className="h-28 w-full rounded-md border border-clinical-line bg-white object-contain p-2" />
           <div className="min-w-0">
             <p className="break-words text-sm font-semibold text-clinical-ink">{value}</p>
             {caption ? <p className="mt-1 text-xs leading-5 text-clinical-muted">{caption}</p> : null}
           </div>
         </div>
       ) : (
-        <p className="mt-1 text-sm font-medium text-clinical-muted">Generate a barcode to create a QR code.</p>
+        <p className="mt-1 text-sm font-medium text-clinical-muted">Generate a barcode before scanning.</p>
       )}
     </div>
   );
 }
 
-function QrUploadLabel({
+function BarcodeUploadLabel({
   label,
   onChange
 }: {
@@ -2521,13 +2542,13 @@ function PriorityGuide() {
 function PatientSummary({ patient, compact = false }: { patient: Patient; compact?: boolean }) {
   return (
     <div className="grid gap-4">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <InfoBlock title="Patient" value={`${patient.name} (${patient.id})`} />
         <InfoBlock title="Admission type" value={patient.admissionType} />
         <InfoBlock title="Date of birth" value={formatDate(patient.dateOfBirth)} />
         <InfoBlock title="Wristband barcode" value={patient.barcode} />
-        <QrCodePreview title="Patient QR code" value={patient.barcode} caption="Encodes the wristband barcode for patient identification." />
         <InfoBlock title="Gender" value={patient.gender || "Not recorded"} />
+        <BarcodePreview title="Patient barcode" value={patient.barcode} caption="Scannable wristband barcode for patient identification." className="md:col-span-3" />
         <InfoBlock title="Nationality" value={patient.nationality || "Not recorded"} />
         <InfoBlock title="Citizen ID / Passport" value={patient.citizenId || "Not recorded"} />
         <InfoBlock title="Ethnicity" value={patient.ethnicity || "Not recorded"} />
@@ -2634,10 +2655,20 @@ function ScreeningImagePanel({ images }: { images: string[] }) {
 }
 
 function Timeline({ events }: { events: PatientTimelineEvent[] }) {
+  const pageSize = 5;
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(events.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const visibleEvents = events.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
   if (events.length === 0) return <EmptyState>No timeline events yet.</EmptyState>;
   return (
     <div className="grid gap-2">
-      {events.map((event) => (
+      {visibleEvents.map((event) => (
         <div key={event.id} className="rounded-md border border-clinical-line bg-white p-3 text-sm">
           <div className="flex flex-wrap justify-between gap-2">
             <span className="font-semibold">{event.description}</span>
@@ -2648,6 +2679,31 @@ function Timeline({ events }: { events: PatientTimelineEvent[] }) {
           </p>
         </div>
       ))}
+      {totalPages > 1 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm">
+          <span className="font-medium text-clinical-muted">
+            Page {currentPage} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={currentPage === 1}
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              className="rounded-md border border-clinical-line bg-white px-3 py-1.5 text-xs font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={currentPage === totalPages}
+              onClick={() => setPage((value) => Math.min(totalPages, value + 1))}
+              className="rounded-md border border-clinical-line bg-white px-3 py-1.5 text-xs font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
