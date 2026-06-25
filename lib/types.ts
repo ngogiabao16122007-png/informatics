@@ -31,7 +31,8 @@ export type ContactInfo = {
 export type MedicationHistoryItem = {
   name: string;
   dose: string;
-  duration: string;
+  frequency: string;
+  duration?: string;
 };
 
 export type Patient = {
@@ -63,7 +64,6 @@ export type Patient = {
   labs: LabResult[];
   patientContact: ContactInfo;
   emergencyContact: ContactInfo;
-  insuranceLink: string;
   screeningImages: string[];
   createdAt: string;
   updatedAt: string;

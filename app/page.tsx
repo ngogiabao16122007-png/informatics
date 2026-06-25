@@ -297,8 +297,7 @@ const emptyAdmissionForm = {
   patientAddress: "",
   emergencyPhone: "",
   emergencyEmail: "",
-  emergencyAddress: "",
-  insuranceLink: ""
+  emergencyAddress: ""
 };
 
 type OrderDraft = {
@@ -358,8 +357,8 @@ function splitLines(value: string): string[] {
 
 function parseMedicationDetails(value: string): MedicationHistoryItem[] {
   return splitLines(value).map((line) => {
-    const [name = "", dose = "", duration = ""] = line.split("|").map((part) => part.trim());
-    return { name, dose, duration };
+    const [name = "", dose = "", frequency = ""] = line.split("|").map((part) => part.trim());
+    return { name, dose, frequency };
   });
 }
 
@@ -398,12 +397,18 @@ function fallbackContact(): ContactInfo {
 }
 
 function fallbackMedicationDetails(values: string[]): MedicationHistoryItem[] {
-  return values.map((name) => ({ name, dose: "", duration: "" }));
+  return values.map((name) => ({ name, dose: "", frequency: "" }));
 }
 
 function normalizePatient(patient: Patient): Patient {
-  const currentMedicationDetails = patient.currentMedicationDetails ?? fallbackMedicationDetails(patient.currentMedications ?? []);
-  const homeMedicationDetails = patient.homeMedicationDetails ?? fallbackMedicationDetails(patient.homeMedications ?? []);
+  const currentMedicationDetails = (patient.currentMedicationDetails ?? fallbackMedicationDetails(patient.currentMedications ?? [])).map((item) => ({
+    ...item,
+    frequency: item.frequency ?? item.duration ?? ""
+  }));
+  const homeMedicationDetails = (patient.homeMedicationDetails ?? fallbackMedicationDetails(patient.homeMedications ?? [])).map((item) => ({
+    ...item,
+    frequency: item.frequency ?? item.duration ?? ""
+  }));
 
   return {
     ...patient,
@@ -422,7 +427,6 @@ function normalizePatient(patient: Patient): Patient {
     homeMedicationDetails,
     patientContact: patient.patientContact ?? fallbackContact(),
     emergencyContact: patient.emergencyContact ?? fallbackContact(),
-    insuranceLink: patient.insuranceLink ?? "",
     screeningImages: patient.screeningImages ?? []
   };
 }
@@ -984,8 +988,7 @@ export default function Home() {
       patientAddress: formText(formData, "patientAddress"),
       emergencyPhone: formText(formData, "emergencyPhone"),
       emergencyEmail: formText(formData, "emergencyEmail"),
-      emergencyAddress: formText(formData, "emergencyAddress"),
-      insuranceLink: formText(formData, "insuranceLink")
+      emergencyAddress: formText(formData, "emergencyAddress")
     };
 
     if (!canUse(currentUser.role, "Ward Clerk")) {
@@ -1041,7 +1044,6 @@ export default function Home() {
         email: formValues.emergencyEmail.trim(),
         address: formValues.emergencyAddress.trim()
       },
-      insuranceLink: formValues.insuranceLink.trim(),
       screeningImages: admissionScreeningImages,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -1289,7 +1291,7 @@ export default function Home() {
                 currentMedications: [...patient.currentMedications, scannedOrder.drugName],
                 currentMedicationDetails: [
                   ...patient.currentMedicationDetails,
-                  { name: scannedOrder.drugName, dose: scannedOrder.dose, duration: "Started during this admission" }
+                  { name: scannedOrder.drugName, dose: scannedOrder.dose, frequency: scannedOrder.frequency }
                 ]
               }
             : patient
@@ -1512,7 +1514,7 @@ export default function Home() {
                   <p className="font-semibold text-clinical-ink">Re-admitted Patient</p>
                   <p className="mt-1 text-clinical-muted">
                     {readmissionPatient
-                      ? `Previous demo EHR found for ${readmissionPatient.name}. Use the insurance or past EHR link below to connect outside records.`
+                      ? `Previous demo EHR found for ${readmissionPatient.name}. Review the existing patient record before creating a new admission.`
                       : "Scan an existing wristband barcode when this is a returning patient."}
                   </p>
                 </div>
@@ -1568,10 +1570,10 @@ export default function Home() {
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Current medications">
-                    <textarea name="currentMedications" className={`${inputClass} min-h-24`} placeholder="Name | dose | how long taken" value={admissionForm.currentMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, currentMedications: event.target.value })} />
+                    <textarea name="currentMedications" className={`${inputClass} min-h-24`} placeholder="Medication | dose | frequency" value={admissionForm.currentMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, currentMedications: event.target.value })} />
                   </Field>
                   <Field label="Home medications">
-                    <textarea name="homeMedications" className={`${inputClass} min-h-24`} placeholder="Name | dose | how long taken" value={admissionForm.homeMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, homeMedications: event.target.value })} />
+                    <textarea name="homeMedications" className={`${inputClass} min-h-24`} placeholder="Medication | dose | frequency" value={admissionForm.homeMedications} onChange={(event) => setAdmissionForm({ ...admissionForm, homeMedications: event.target.value })} />
                   </Field>
                 </div>
                 <div className="rounded-lg border border-clinical-line bg-clinical-panel p-4">
@@ -1603,9 +1605,6 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-                <Field label="Insurance / past EHR link">
-                  <input name="insuranceLink" className={inputClass} placeholder="Paste link to insurance or past EHR from another hospital" value={admissionForm.insuranceLink} onChange={(event) => setAdmissionForm({ ...admissionForm, insuranceLink: event.target.value })} />
-                </Field>
                 <div className="rounded-md border border-clinical-line bg-white p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -2262,7 +2261,6 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
         <MedicationDetailsTable title="Home Medications" medications={patient.homeMedicationDetails} />
         <ContactBlock title="Patient personal contacts" contact={patient.patientContact} />
         <ContactBlock title="Emergency contact" contact={patient.emergencyContact} />
-        <InfoBlock title="Insurance / past EHR" value={patient.insuranceLink || "No link recorded"} />
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <div className="rounded-md border border-clinical-line bg-white p-3">
@@ -2312,9 +2310,9 @@ function MedicationDetailsTable({ title, medications }: { title: string; medicat
         <table className="w-full min-w-[360px] text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-clinical-muted">
             <tr>
-              <th className="py-1 pr-3">Name</th>
+              <th className="py-1 pr-3">Medication</th>
               <th className="py-1 pr-3">Dose</th>
-              <th className="py-1">Duration used</th>
+              <th className="py-1">Frequency</th>
             </tr>
           </thead>
           <tbody>
@@ -2322,7 +2320,7 @@ function MedicationDetailsTable({ title, medications }: { title: string; medicat
               <tr key={`${medication.name}-${index}`} className="border-t border-clinical-line">
                 <td className="py-2 pr-3 font-medium">{medication.name || "-"}</td>
                 <td className="py-2 pr-3">{medication.dose || "-"}</td>
-                <td className="py-2">{medication.duration || "-"}</td>
+                <td className="py-2">{medication.frequency || medication.duration || "-"}</td>
               </tr>
             ))}
           </tbody>

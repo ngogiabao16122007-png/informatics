@@ -35,12 +35,12 @@ export const seedState: DemoState = {
       currentMedications: ["Furosemide", "Metformin"],
       homeMedications: ["Lisinopril", "Atorvastatin"],
       currentMedicationDetails: [
-        { name: "Furosemide", dose: "40 mg", duration: "6 months" },
-        { name: "Metformin", dose: "500 mg", duration: "2 years" }
+        { name: "Furosemide", dose: "40 mg", frequency: "Once daily" },
+        { name: "Metformin", dose: "500 mg", frequency: "Twice daily" }
       ],
       homeMedicationDetails: [
-        { name: "Lisinopril", dose: "10 mg", duration: "1 year" },
-        { name: "Atorvastatin", dose: "20 mg", duration: "18 months" }
+        { name: "Lisinopril", dose: "10 mg", frequency: "Once daily" },
+        { name: "Atorvastatin", dose: "20 mg", frequency: "Once nightly" }
       ],
       weightKg: 82,
       renalFunction: 38,
@@ -59,7 +59,6 @@ export const seedState: DemoState = {
         email: "taylor.ellis@example.com",
         address: "12 Nguyen Hue, District 1, Ho Chi Minh City"
       },
-      insuranceLink: "https://demo.local/past-ehr/jordan-ellis",
       screeningImages: [],
       createdAt: now,
       updatedAt: now,
@@ -96,8 +95,8 @@ export const seedState: DemoState = {
       reasonForVisit: "Asthma flare after recent respiratory infection.",
       currentMedications: ["Albuterol"],
       homeMedications: ["Cetirizine"],
-      currentMedicationDetails: [{ name: "Albuterol", dose: "2 puffs", duration: "As needed for 5 years" }],
-      homeMedicationDetails: [{ name: "Cetirizine", dose: "10 mg", duration: "Seasonal use" }],
+      currentMedicationDetails: [{ name: "Albuterol", dose: "2 puffs", frequency: "As needed" }],
+      homeMedicationDetails: [{ name: "Cetirizine", dose: "10 mg", frequency: "Once daily during allergy season" }],
       weightKg: 68,
       renalFunction: 91,
       labs: [
@@ -114,7 +113,6 @@ export const seedState: DemoState = {
         email: "parent.morgan@example.com",
         address: "22 Le Loi, District 3, Ho Chi Minh City"
       },
-      insuranceLink: "https://demo.local/past-ehr/casey-morgan",
       screeningImages: [],
       createdAt: now,
       updatedAt: now,
