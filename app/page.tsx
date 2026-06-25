@@ -199,31 +199,31 @@ const demoWorkflowSteps: DemoWorkflowStep[] = [
     role: "Pharmacist",
     moduleId: "pharmacy",
     title: "Verify order and generate dose barcode",
-    action: "Review patient context and alerts, then approve or reject the medication order.",
-    result: "Approved orders receive a medication dose barcode for BCMA scanning."
+    action: "Review patient context and safety alerts, then approve or reject the medication order.",
+    result: "Approved orders receive a scannable medication barcode that can be uploaded or scanned in Pharmacy and BCMA."
   },
   {
     id: "dispense",
     role: "Pharmacist",
     moduleId: "pharmacy",
     title: "Dispense prepared medication",
-    action: "Mark the approved medication as dispensed after barcode generation.",
-    result: "The order status becomes Dispensed and is ready for nurse administration."
+    action: "Generate or recheck the medication barcode, then mark the medication as dispensed.",
+    result: "The order status becomes Dispensed and the nurse can use the barcode for Five Rights verification."
   },
   {
     id: "identify",
     role: "Nurse",
     moduleId: "patientScan",
     title: "Scan patient wristband",
-    action: "Enter or scan the patient wristband barcode to identify the patient before medication administration.",
-    result: "The matched patient profile opens with allergies, current medications, labs, barcode, and recent timeline."
+    action: "Enter the wristband barcode, scan it, or upload a barcode picture to identify the patient before medication administration.",
+    result: "The matched patient profile opens with allergies, current medications, labs, a visual barcode, and recent timeline."
   },
   {
     id: "administer",
     role: "Nurse",
     moduleId: "bcma",
     title: "Scan and verify Five Rights",
-    action: "Scan the patient barcode and medication barcode, then review each Five Rights check.",
+    action: "Scan or upload both the patient barcode and the medication dose barcode, then review each Five Rights check.",
     result: "Administration is blocked until the demo checks pass for patient, drug, dose, route, and time."
   },
   {
@@ -702,14 +702,16 @@ function Section({
 function Field({
   label,
   children,
-  required
+  required,
+  className = ""
 }: {
   label: string;
   children: React.ReactNode;
   required?: boolean;
+  className?: string;
 }) {
   return (
-    <label className="grid gap-1.5 text-sm font-medium text-clinical-ink">
+    <label className={`grid gap-1.5 text-sm font-medium text-clinical-ink ${className}`}>
       <span>
         {label}
         {required ? <span className="text-red-700"> *</span> : null}
@@ -1596,7 +1598,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-[96rem] gap-5 px-4 py-6 sm:px-6 lg:px-8">
         <RoleDescriptionPanel role={currentUser.role} moduleId={safeActiveModule} />
 
         {safeActiveModule === "dashboard" ? (
@@ -1629,29 +1631,35 @@ export default function Home() {
             <Section title="Admission" icon={UserPlus}>
               <form onSubmit={createPatient} className="grid gap-4">
                 {admissionError ? <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">{admissionError}</div> : null}
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className={`grid gap-4 ${admissionForm.admissionType === "Re-admitted patient" ? "sm:grid-cols-2" : ""}`}>
                   <Field label="Admission type">
                     <select name="admissionType" className={inputClass} value={admissionForm.admissionType} onChange={(event) => setAdmissionForm({ ...admissionForm, admissionType: event.target.value })}>
                       <option>New admission</option>
                       <option>Re-admitted patient</option>
                     </select>
                   </Field>
-                  <Field label="Scan barcode">
-                    <input
-                      name="readmissionBarcode"
-                      className={inputClass}
-                      placeholder="Paste the patient wristband barcode"
-                      value={admissionForm.readmissionBarcode}
-                      onChange={(event) => setAdmissionForm({ ...admissionForm, readmissionBarcode: event.target.value })}
-                    />
-                  </Field>
+                  {admissionForm.admissionType === "Re-admitted patient" ? (
+                    <Field label="Scan barcode">
+                      <input
+                        name="readmissionBarcode"
+                        className={inputClass}
+                        placeholder="Paste the patient wristband barcode"
+                        value={admissionForm.readmissionBarcode}
+                        onChange={(event) => setAdmissionForm({ ...admissionForm, readmissionBarcode: event.target.value })}
+                      />
+                    </Field>
+                  ) : null}
                 </div>
                 <div className="rounded-md border border-clinical-line bg-clinical-panel p-3 text-sm">
-                  <p className="font-semibold text-clinical-ink">Re-admitted Patient</p>
+                  <p className="font-semibold text-clinical-ink">
+                    {admissionForm.admissionType === "Re-admitted patient" ? "Re-admitted Patient" : "New Admission"}
+                  </p>
                   <p className="mt-1 text-clinical-muted">
-                    {readmissionPatient
+                    {admissionForm.admissionType === "Re-admitted patient" && readmissionPatient
                       ? `Previous demo EHR found for ${readmissionPatient.name}. Review the existing patient record before creating a new admission.`
-                      : "Scan an existing wristband barcode when this is a returning patient."}
+                      : admissionForm.admissionType === "Re-admitted patient"
+                        ? "Scan an existing wristband barcode when this is a returning patient."
+                        : "Create a new hospital admission and generate a new wristband barcode after the patient profile is saved."}
                   </p>
                 </div>
                 <div>
@@ -1687,7 +1695,7 @@ export default function Home() {
                     <Field label="Occupation">
                       <input name="occupation" className={inputClass} placeholder="Enter occupation" value={admissionForm.occupation} onChange={(event) => setAdmissionForm({ ...admissionForm, occupation: event.target.value })} />
                     </Field>
-                    <Field label="Renal function eGFR" required>
+                    <Field label="Renal function eGFR" required className="sm:col-span-2">
                       <input name="renalFunction" type="number" min="0" className={inputClass} placeholder="Enter eGFR value, for example 90" value={admissionForm.renalFunction} onChange={(event) => setAdmissionForm({ ...admissionForm, renalFunction: event.target.value })} />
                     </Field>
                   </div>
@@ -1994,10 +2002,16 @@ export default function Home() {
                     <div className="grid gap-4 lg:grid-cols-2">
                       <div className="grid gap-3 rounded-lg border border-clinical-line bg-white p-4">
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Verification</h3>
-                        <AlertList alerts={alerts} orders={state.orders} patients={state.patients} compact />
-                        <ControlBlock title="Pharmacist notes">
+                        <ControlBlock title="Verification status">
+                          {alerts.length ? (
+                            <AlertList alerts={alerts} orders={state.orders} patients={state.patients} compact />
+                          ) : (
+                            <p className="text-sm font-medium text-clinical-muted">No demo safety alerts.</p>
+                          )}
+                        </ControlBlock>
+                        <ControlBlock title="Pharmacist notes" className="min-h-[152px]">
                           <textarea
-                            className={`${inputClass} min-h-20 w-full`}
+                            className={`${inputClass} min-h-28 w-full`}
                             placeholder="Enter verification notes"
                             value={pharmacyNotes[order.id] ?? order.pharmacistNotes ?? ""}
                             onChange={(event) => setPharmacyNotes({ ...pharmacyNotes, [order.id]: event.target.value })}
@@ -2008,16 +2022,16 @@ export default function Home() {
                             type="button"
                             disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
                             onClick={() => approveOrder(order)}
-                            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-clinical-teal px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+                            className="inline-flex min-h-8 items-center gap-1.5 rounded-md bg-clinical-teal px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
                           >
-                            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                            <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
                             Approve
                           </button>
                           <button
                             type="button"
                             disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Pharmacy Review"}
                             onClick={() => rejectOrder(order)}
-                            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                            className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                           >
                             Reject
                           </button>
@@ -2059,12 +2073,12 @@ export default function Home() {
                             {pharmacyDispenseMessages[order.id]}
                           </div>
                         ) : null}
-                        <div className="flex flex-wrap gap-2">
+                        <div className="grid gap-3 sm:grid-cols-2">
                           <button
                             type="button"
                             disabled={!canUse(currentUser.role, "Pharmacist") || !["Approved", "Dispensed"].includes(order.status)}
                             onClick={() => generateMedicationBarcode(order)}
-                            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
+                            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-4 py-2 text-sm font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
                           >
                             <Barcode className="h-4 w-4" aria-hidden="true" />
                             Generate Barcode
@@ -2073,7 +2087,7 @@ export default function Home() {
                             type="button"
                             disabled={!canUse(currentUser.role, "Pharmacist") || order.status !== "Approved" || !barcodeMatches}
                             onClick={() => dispenseOrder(order)}
-                            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
+                            className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-4 py-2 text-sm font-semibold text-clinical-ink disabled:cursor-not-allowed disabled:text-slate-400"
                           >
                             <BadgeCheck className="h-4 w-4" aria-hidden="true" />
                             Mark Dispensed
@@ -2547,8 +2561,7 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
         <InfoBlock title="Admission type" value={patient.admissionType} />
         <InfoBlock title="Date of birth" value={formatDate(patient.dateOfBirth)} />
         <InfoBlock title="Wristband barcode" value={patient.barcode} />
-        <InfoBlock title="Gender" value={patient.gender || "Not recorded"} />
-        <BarcodePreview title="Patient barcode" value={patient.barcode} caption="Scannable wristband barcode for patient identification." className="md:col-span-3" />
+        <BarcodePreview title="Patient barcode" value={patient.barcode} caption="Scannable wristband barcode for patient identification." className="md:col-span-4" />
         <InfoBlock title="Nationality" value={patient.nationality || "Not recorded"} />
         <InfoBlock title="Citizen ID / Passport" value={patient.citizenId || "Not recorded"} />
         <InfoBlock title="Ethnicity" value={patient.ethnicity || "Not recorded"} />
@@ -2558,6 +2571,7 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
         <InfoBlock title="Occupation" value={patient.occupation || "Not recorded"} />
         <InfoBlock title="Renal function" value={`eGFR ${patient.renalFunction}`} />
         <InfoBlock title="Created by" value={`${patient.createdBy} at ${formatDateTime(patient.createdAt)}`} />
+        <InfoBlock title="Gender" value={patient.gender || "Not recorded"} />
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <InfoBlock title="Reason for visit" value={patient.reasonForVisit || "Not recorded"} />
