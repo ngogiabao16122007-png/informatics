@@ -1854,7 +1854,6 @@ export default function Home() {
                     ))}
                   </select>
                 </Field>
-                <PriorityGuide />
                 <div className="grid gap-4">
                   {orderForm.items.map((item, index) => (
                     <div key={item.id} className="grid gap-4 rounded-lg border border-clinical-line bg-clinical-panel p-4">
@@ -1886,6 +1885,9 @@ export default function Home() {
                             <option>STAT</option>
                           </select>
                         </Field>
+                        <div className="sm:col-span-2">
+                          <PriorityGuide />
+                        </div>
                         <Field label="Route" required>
                           <select className={inputClass} value={item.route} onChange={(event) => updateOrderDraft(item.id, { route: event.target.value })}>
                             <option>Oral</option>
@@ -1941,10 +1943,12 @@ export default function Home() {
             </Section>
             <Section title="Orders and Demo Safety Alerts" icon={AlertTriangle}>
               <div className="grid gap-5">
-                <div>
-                  <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-clinical-muted">Drug Interaction Preview</h3>
-                  <AlertList alerts={cpoePreviewAlerts} orders={state.orders} patients={state.patients} compact />
-                </div>
+                {cpoePreviewAlerts.length ? (
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-clinical-muted">Drug Interaction Preview</h3>
+                    <AlertList alerts={cpoePreviewAlerts} orders={state.orders} patients={state.patients} compact />
+                  </div>
+                ) : null}
                 <OrdersTable orders={state.orders} patients={state.patients} alerts={state.alerts} />
               </div>
             </Section>
@@ -1999,8 +2003,8 @@ export default function Home() {
                         </div>
                       </div>
                     ) : null}
-                    <div className="grid gap-4 lg:grid-cols-2">
-                      <div className="grid gap-3 rounded-lg border border-clinical-line bg-white p-4">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+                      <div className="grid gap-2 rounded-lg border border-clinical-line bg-white p-3">
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-clinical-muted">Verification</h3>
                         <ControlBlock title="Verification status">
                           {alerts.length ? (
@@ -2009,9 +2013,9 @@ export default function Home() {
                             <p className="text-sm font-medium text-clinical-muted">No demo safety alerts.</p>
                           )}
                         </ControlBlock>
-                        <ControlBlock title="Pharmacist notes" className="min-h-[152px]">
+                        <ControlBlock title="Pharmacist notes">
                           <textarea
-                            className={`${inputClass} min-h-28 w-full`}
+                            className={`${inputClass} min-h-20 w-full`}
                             placeholder="Enter verification notes"
                             value={pharmacyNotes[order.id] ?? order.pharmacistNotes ?? ""}
                             onChange={(event) => setPharmacyNotes({ ...pharmacyNotes, [order.id]: event.target.value })}
@@ -2042,21 +2046,45 @@ export default function Home() {
                         <div className="grid gap-3 sm:grid-cols-2">
                           <InfoBlock title="Medication barcode" value={order.doseBarcode ?? "Generate barcode before dispensing"} />
                           <InfoBlock title="Created by" value={currentUser.name} />
-                          <BarcodePreview title="Medication barcode" value={order.doseBarcode} caption={`${order.drugName} ${order.dose}`} />
-                          <ControlBlock title="Dose taken">
-                            <input className={`${inputClass} w-full`} placeholder="Enter dose taken" value={dispensingForm.doseTaken} onChange={(event) => updateDispensingForm(order.id, { doseTaken: event.target.value })} />
-                          </ControlBlock>
-                          <ControlBlock title="Package">
-                            <select className={`${inputClass} w-full`} value={dispensingForm.packageType} onChange={(event) => updateDispensingForm(order.id, { packageType: event.target.value as "Full box" | "Individual bag" })}>
-                              <option>Full box</option>
-                              <option>Individual bag</option>
-                            </select>
-                          </ControlBlock>
-                          {dispensingForm.packageType === "Individual bag" ? (
-                            <ControlBlock title="Custom dose">
-                              <input className={`${inputClass} w-full`} placeholder="Enter custom dose for individual bag" value={dispensingForm.customDose} onChange={(event) => updateDispensingForm(order.id, { customDose: event.target.value })} />
-                            </ControlBlock>
-                          ) : null}
+                          {order.doseBarcode ? (
+                            <>
+                              <BarcodePreview title="Medication barcode" value={order.doseBarcode} caption={`${order.drugName} ${order.dose}`} />
+                              <div className="grid gap-3">
+                                <ControlBlock title="Dose taken">
+                                  <input className={`${inputClass} w-full`} placeholder="Enter dose taken" value={dispensingForm.doseTaken} onChange={(event) => updateDispensingForm(order.id, { doseTaken: event.target.value })} />
+                                </ControlBlock>
+                                <ControlBlock title="Package">
+                                  <select className={`${inputClass} w-full`} value={dispensingForm.packageType} onChange={(event) => updateDispensingForm(order.id, { packageType: event.target.value as "Full box" | "Individual bag" })}>
+                                    <option>Full box</option>
+                                    <option>Individual bag</option>
+                                  </select>
+                                </ControlBlock>
+                                {dispensingForm.packageType === "Individual bag" ? (
+                                  <ControlBlock title="Custom dose">
+                                    <input className={`${inputClass} w-full`} placeholder="Enter custom dose for individual bag" value={dispensingForm.customDose} onChange={(event) => updateDispensingForm(order.id, { customDose: event.target.value })} />
+                                  </ControlBlock>
+                                ) : null}
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <BarcodePreview title="Medication barcode" value={order.doseBarcode} caption={`${order.drugName} ${order.dose}`} />
+                              <ControlBlock title="Dose taken">
+                                <input className={`${inputClass} w-full`} placeholder="Enter dose taken" value={dispensingForm.doseTaken} onChange={(event) => updateDispensingForm(order.id, { doseTaken: event.target.value })} />
+                              </ControlBlock>
+                              <ControlBlock title="Package">
+                                <select className={`${inputClass} w-full`} value={dispensingForm.packageType} onChange={(event) => updateDispensingForm(order.id, { packageType: event.target.value as "Full box" | "Individual bag" })}>
+                                  <option>Full box</option>
+                                  <option>Individual bag</option>
+                                </select>
+                              </ControlBlock>
+                              {dispensingForm.packageType === "Individual bag" ? (
+                                <ControlBlock title="Custom dose">
+                                  <input className={`${inputClass} w-full`} placeholder="Enter custom dose for individual bag" value={dispensingForm.customDose} onChange={(event) => updateDispensingForm(order.id, { customDose: event.target.value })} />
+                                </ControlBlock>
+                              ) : null}
+                            </>
+                          )}
                           <ControlBlock title="Scan barcode" className="sm:col-span-2">
                             <input className={`${inputClass} w-full`} placeholder="Scan barcode to recheck" value={dispensingForm.scanBarcode} onChange={(event) => updateDispensingForm(order.id, { scanBarcode: event.target.value })} />
                             <div className="mt-2 grid gap-1.5">
@@ -2124,11 +2152,7 @@ export default function Home() {
                     </label>
                     {patientScanImage ? (
                       <NextImage src={patientScanImage} alt={patientScanImageName || "Patient wristband upload"} width={320} height={96} unoptimized className="h-24 w-full rounded-md border border-clinical-line object-cover" />
-                    ) : (
-                      <div className="grid h-24 place-items-center rounded-md border border-dashed border-clinical-line bg-clinical-panel px-3 text-center text-xs text-clinical-muted">
-                        Wristband picture preview
-                      </div>
-                    )}
+                    ) : null}
                   </div>
                   {patientScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{patientScanMessage}</p> : null}
                 </div>
