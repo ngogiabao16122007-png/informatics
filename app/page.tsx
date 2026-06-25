@@ -20,6 +20,8 @@ import {
   UserPlus
 } from "lucide-react";
 import NextImage from "next/image";
+import QRCode from "qrcode";
+import jsQR from "jsqr";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { formatDate, formatDateTime, makeId } from "../lib/ids";
 import { runDemoSafetyChecks } from "../lib/safety";
@@ -291,7 +293,7 @@ const emptyAdmissionForm = {
   currentMedications: "",
   homeMedications: "",
   weightKg: "70",
-  renalFunction: "90",
+  renalFunction: "",
   patientPhone: "",
   patientEmail: "",
   patientAddress: "",
@@ -720,6 +722,47 @@ function Field({
 const inputClass =
   "min-h-10 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm text-clinical-ink shadow-sm transition focus:border-clinical-blue";
 
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Unable to read image file."));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(file);
+  });
+}
+
+function decodeQrFromDataUrl(dataUrl: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("Unable to inspect this image."));
+        return;
+      }
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const result = jsQR(imageData.data, imageData.width, imageData.height);
+      if (!result?.data) {
+        reject(new Error("No readable QR code found in this image."));
+        return;
+      }
+      resolve(result.data);
+    };
+    image.onerror = () => reject(new Error("Unable to load this image."));
+    image.src = dataUrl;
+  });
+}
+
+async function decodeQrUpload(file: File) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const value = await decodeQrFromDataUrl(dataUrl);
+  return { dataUrl, value };
+}
+
 function EmptyState({ children }: { children: React.ReactNode }) {
   return <div className="rounded-md border border-dashed border-clinical-line bg-clinical-panel p-6 text-sm text-clinical-muted">{children}</div>;
 }
@@ -737,13 +780,13 @@ function RoleDescriptionPanel({
 
   return (
     <section className="rounded-lg border border-clinical-line bg-white p-5 shadow-soft">
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(24rem,0.55fr)] xl:items-start">
+      <div className="grid gap-4">
         <div className="min-w-0">
           <Badge className="border-clinical-line bg-clinical-panel text-clinical-muted">{role}</Badge>
           <h2 className="mt-3 text-lg font-semibold text-clinical-ink">{description.title}</h2>
-          <p className="mt-2 text-sm leading-6 text-clinical-muted">{description.description}</p>
+          <p className="mt-2 max-w-none text-sm leading-6 text-clinical-muted">{description.description}</p>
         </div>
-        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 xl:grid-cols-6">
           {description.checkpoints.map((checkpoint) => (
             <span key={checkpoint} className="flex min-h-9 items-center justify-center rounded-full border border-teal-200 bg-teal-50 px-3 py-1 text-center text-xs font-semibold text-teal-800">
               {checkpoint}
@@ -771,12 +814,16 @@ export default function Home() {
   const [patientScan, setPatientScan] = useState(initialFiveRightsPassExample?.patient.barcode ?? seedState.patients[0]?.barcode ?? "");
   const [patientScanImage, setPatientScanImage] = useState("");
   const [patientScanImageName, setPatientScanImageName] = useState("");
+  const [patientScanMessage, setPatientScanMessage] = useState("");
   const [admissionScreeningImages, setAdmissionScreeningImages] = useState<string[]>([]);
   const [medicationScan, setMedicationScan] = useState(initialFiveRightsPassExample?.order.doseBarcode ?? "");
+  const [medicationScanMessage, setMedicationScanMessage] = useState("");
   const [administrationNote, setAdministrationNote] = useState("");
   const [handoverBarcode, setHandoverBarcode] = useState(seedState.patients[0]?.barcode ?? "");
   const [handoverTo, setHandoverTo] = useState("");
   const [handoverNote, setHandoverNote] = useState("");
+  const [pharmacyQrMessages, setPharmacyQrMessages] = useState<Record<string, string>>({});
+  const [pharmacyDispenseMessages, setPharmacyDispenseMessages] = useState<Record<string, string>>({});
   const [pendingDeletePatientId, setPendingDeletePatientId] = useState<string | null>(null);
 
   const currentUser = demoUsers.find((user) => user.id === currentUserId) ?? demoUsers[0];
@@ -915,16 +962,54 @@ export default function Home() {
     event.currentTarget.value = "";
   }
 
-  function handlePatientScanImageUpload(event: ChangeEvent<HTMLInputElement>) {
+  async function handlePatientScanImageUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPatientScanImage(String(reader.result));
+    try {
+      const result = await decodeQrUpload(file);
+      setPatientScan(result.value);
+      setPatientScanImage(result.dataUrl);
       setPatientScanImageName(file.name);
-    };
-    reader.readAsDataURL(file);
-    event.currentTarget.value = "";
+      setPatientScanMessage(`QR scanned: ${result.value}`);
+    } catch (error) {
+      const dataUrl = await readFileAsDataUrl(file);
+      setPatientScanImage(dataUrl);
+      setPatientScanImageName(file.name);
+      setPatientScanMessage(error instanceof Error ? error.message : "No readable QR code found in this image.");
+    } finally {
+      event.currentTarget.value = "";
+    }
+  }
+
+  async function handleMedicationScanQrUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    try {
+      const result = await decodeQrUpload(file);
+      setMedicationScan(result.value);
+      setMedicationScanMessage(`QR scanned: ${result.value}`);
+    } catch (error) {
+      setMedicationScanMessage(error instanceof Error ? error.message : "No readable QR code found in this image.");
+    } finally {
+      event.currentTarget.value = "";
+    }
+  }
+
+  async function handlePharmacyQrUpload(orderId: string, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    try {
+      const result = await decodeQrUpload(file);
+      updateDispensingForm(orderId, { scanBarcode: result.value });
+      setPharmacyQrMessages((messages) => ({ ...messages, [orderId]: `QR scanned: ${result.value}` }));
+    } catch (error) {
+      setPharmacyQrMessages((messages) => ({
+        ...messages,
+        [orderId]: error instanceof Error ? error.message : "No readable QR code found in this image."
+      }));
+    } finally {
+      event.currentTarget.value = "";
+    }
   }
 
   function updateDispensingForm(orderId: string, patch: Partial<{ doseTaken: string; packageType: "Full box" | "Individual bag"; customDose: string; scanBarcode: string }>) {
@@ -1275,6 +1360,10 @@ export default function Home() {
     if (order.doseBarcode) {
       setMedicationScan(order.doseBarcode);
     }
+    setPharmacyDispenseMessages((messages) => ({
+      ...messages,
+      [order.id]: `${order.drugName} is now marked Dispensed. The medication barcode is ready for nurse BCMA scanning, and the Right time check can pass.`
+    }));
   }
 
   const fiveRights = useMemo(() => evaluateFiveRights(state, patientScan, medicationScan), [state, patientScan, medicationScan]);
@@ -1382,8 +1471,12 @@ export default function Home() {
     setPatientScan(seedPassExample?.patient.barcode ?? seedState.patients[0]?.barcode ?? "");
     setPatientScanImage("");
     setPatientScanImageName("");
+    setPatientScanMessage("");
     setAdmissionScreeningImages([]);
     setMedicationScan(seedPassExample?.order.doseBarcode ?? "");
+    setMedicationScanMessage("");
+    setPharmacyQrMessages({});
+    setPharmacyDispenseMessages({});
     setHandoverBarcode(seedState.patients[0]?.barcode ?? "");
     setHandoverTo("");
     setActiveModule(defaultWorkspace[currentUser.role]);
@@ -1596,7 +1689,7 @@ export default function Home() {
                       <input name="occupation" className={inputClass} placeholder="Enter occupation" value={admissionForm.occupation} onChange={(event) => setAdmissionForm({ ...admissionForm, occupation: event.target.value })} />
                     </Field>
                     <Field label="Renal function eGFR" required>
-                      <input name="renalFunction" type="number" min="0" className={inputClass} placeholder="Enter eGFR" value={admissionForm.renalFunction} onChange={(event) => setAdmissionForm({ ...admissionForm, renalFunction: event.target.value })} />
+                      <input name="renalFunction" type="number" min="0" className={inputClass} placeholder="Enter eGFR value, for example 90" value={admissionForm.renalFunction} onChange={(event) => setAdmissionForm({ ...admissionForm, renalFunction: event.target.value })} />
                     </Field>
                   </div>
                 </div>
@@ -1754,6 +1847,7 @@ export default function Home() {
                     ))}
                   </select>
                 </Field>
+                <PriorityGuide />
                 <div className="grid gap-4">
                   {orderForm.items.map((item, index) => (
                     <div key={item.id} className="grid gap-4 rounded-lg border border-clinical-line bg-clinical-panel p-4">
@@ -1935,6 +2029,7 @@ export default function Home() {
                         <div className="grid gap-3 sm:grid-cols-2">
                           <InfoBlock title="Medication barcode" value={order.doseBarcode ?? "Generate barcode before dispensing"} />
                           <InfoBlock title="Created by" value={currentUser.name} />
+                          <QrCodePreview title="Medication QR code" value={order.doseBarcode} caption={`${order.drugName} ${order.dose}`} />
                           <Field label="Dose taken">
                             <input className={inputClass} placeholder="Enter dose taken" value={dispensingForm.doseTaken} onChange={(event) => updateDispensingForm(order.id, { doseTaken: event.target.value })} />
                           </Field>
@@ -1952,10 +2047,19 @@ export default function Home() {
                           <Field label="Scan barcode">
                             <input className={inputClass} placeholder="Scan barcode to recheck" value={dispensingForm.scanBarcode} onChange={(event) => updateDispensingForm(order.id, { scanBarcode: event.target.value })} />
                           </Field>
+                          <div className="grid gap-1.5 self-end">
+                            <QrUploadLabel label="Upload medication QR" onChange={(event) => handlePharmacyQrUpload(order.id, event)} />
+                            {pharmacyQrMessages[order.id] ? <p className="text-xs text-clinical-muted">{pharmacyQrMessages[order.id]}</p> : null}
+                          </div>
                         </div>
                         <div className={`rounded-md border p-3 text-sm ${barcodeMatches ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
                           {barcodeMatches ? "Scanned medication barcode matches." : "Scan the generated medication barcode to recheck before dispensing."}
                         </div>
+                        {pharmacyDispenseMessages[order.id] ? (
+                          <div className="rounded-md border border-green-200 bg-green-50 p-3 text-sm leading-6 text-green-800">
+                            {pharmacyDispenseMessages[order.id]}
+                          </div>
+                        ) : null}
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -1989,9 +2093,9 @@ export default function Home() {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
             <Section title="Patient Barcode Scan" icon={Barcode}>
               <div className="grid gap-4">
-                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
-                  <label className="grid gap-1.5 text-sm text-clinical-ink">
-                    <span className="font-bold">Patient wristband barcode</span>
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_160px] md:items-start">
+                  <label className="grid gap-2 text-sm text-clinical-ink md:grid-cols-[190px_minmax(0,1fr)] md:items-start">
+                    <span className="pt-2 font-bold">Patient wristband barcode</span>
                     <input
                       className={inputClass}
                       placeholder="Paste the patient wristband barcode"
@@ -2000,22 +2104,24 @@ export default function Home() {
                     />
                   </label>
                   <div className="grid gap-2">
-                    <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold hover:bg-clinical-panel">
+                    <label className="inline-flex min-h-9 cursor-pointer items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-2 py-1.5 text-xs font-semibold hover:bg-clinical-panel">
                       <ImageIcon className="h-4 w-4" aria-hidden="true" />
-                      Upload Picture
+                      Upload QR / Picture
                       <input type="file" accept="image/*" className="sr-only" onChange={handlePatientScanImageUpload} />
                     </label>
                     {patientScanImage ? (
-                      <NextImage src={patientScanImage} alt={patientScanImageName || "Patient wristband upload"} width={220} height={112} unoptimized className="h-28 w-full rounded-md border border-clinical-line object-cover" />
+                      <NextImage src={patientScanImage} alt={patientScanImageName || "Patient wristband upload"} width={160} height={80} unoptimized className="h-20 w-full rounded-md border border-clinical-line object-cover" />
                     ) : (
-                      <div className="grid h-28 place-items-center rounded-md border border-dashed border-clinical-line bg-clinical-panel px-3 text-center text-xs text-clinical-muted">
+                      <div className="grid h-20 place-items-center rounded-md border border-dashed border-clinical-line bg-clinical-panel px-2 text-center text-xs text-clinical-muted">
                         Wristband picture preview
                       </div>
                     )}
+                    {patientScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{patientScanMessage}</p> : null}
                   </div>
                 </div>
                 <div className="grid gap-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Quick patient scan</p>
+                  <p className="text-xs font-semibold text-clinical-muted">Patient name:</p>
                   <div className="flex flex-wrap gap-2">
                     {state.patients.map((patient) => (
                       <button
@@ -2060,25 +2166,41 @@ export default function Home() {
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.75fr)_minmax(0,1.25fr)]">
             <Section title="Barcode Scanning" icon={Barcode}>
               <div className="grid gap-4">
-                <Field label="Patient barcode">
-                  <input className={inputClass} value={patientScan} onChange={(event) => setPatientScan(event.target.value)} />
-                </Field>
-                <Field label="Medication dose barcode">
-                  <input className={inputClass} value={medicationScan} onChange={(event) => setMedicationScan(event.target.value)} />
-                </Field>
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                  <Field label="Patient barcode">
+                    <input className={inputClass} value={patientScan} onChange={(event) => setPatientScan(event.target.value)} />
+                  </Field>
+                  <QrUploadLabel label="Upload patient QR" onChange={handlePatientScanImageUpload} />
+                </div>
+                {patientScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{patientScanMessage}</p> : null}
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                  <Field label="Medication dose barcode">
+                    <input className={inputClass} value={medicationScan} onChange={(event) => setMedicationScan(event.target.value)} />
+                  </Field>
+                  <QrUploadLabel label="Upload medication QR" onChange={handleMedicationScanQrUpload} />
+                </div>
+                {medicationScanMessage ? <p className="text-xs leading-5 text-clinical-muted">{medicationScanMessage}</p> : null}
                 <div className="grid gap-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Quick scan picks</p>
-                  <div className="flex flex-wrap gap-2">
-                    {state.patients.map((patient) => (
-                      <button key={patient.id} type="button" onClick={() => setPatientScan(patient.barcode)} className="rounded-md border border-clinical-line bg-white px-3 py-2 text-xs font-semibold hover:bg-clinical-panel">
-                        {patient.name}
-                      </button>
-                    ))}
-                    {sortOrdersByPriority(state.orders.filter((order) => order.doseBarcode)).map((order) => (
-                      <button key={order.id} type="button" onClick={() => setMedicationScan(order.doseBarcode ?? "")} className="rounded-md border border-clinical-line bg-white px-3 py-2 text-xs font-semibold hover:bg-clinical-panel">
-                        {order.priority} - {order.drugName}
-                      </button>
-                    ))}
+                  <div className="grid gap-2">
+                    <p className="text-xs font-semibold text-clinical-muted">Patient name:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {state.patients.map((patient) => (
+                        <button key={patient.id} type="button" onClick={() => setPatientScan(patient.barcode)} className="rounded-md border border-clinical-line bg-white px-3 py-2 text-xs font-semibold hover:bg-clinical-panel">
+                          {patient.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid gap-2">
+                    <p className="text-xs font-semibold text-clinical-muted">Pill name:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {sortOrdersByPriority(state.orders.filter((order) => order.doseBarcode)).map((order) => (
+                        <button key={order.id} type="button" onClick={() => setMedicationScan(order.doseBarcode ?? "")} className="rounded-md border border-clinical-line bg-white px-3 py-2 text-xs font-semibold hover:bg-clinical-panel">
+                          {order.drugName} {order.dose}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
                 {(fiveRightsPassExample || fiveRightsFailExample) ? (
@@ -2309,6 +2431,93 @@ function InfoBlock({ title, value }: { title: string; value: string }) {
   );
 }
 
+function QrCodePreview({
+  value,
+  title,
+  caption
+}: {
+  value?: string;
+  title: string;
+  caption?: string;
+}) {
+  const [qrDataUrl, setQrDataUrl] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!value) {
+      setQrDataUrl("");
+      return;
+    }
+
+    QRCode.toDataURL(value, { errorCorrectionLevel: "M", margin: 1, width: 144 })
+      .then((dataUrl) => {
+        if (!cancelled) setQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setQrDataUrl("");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+
+  return (
+    <div className="h-full rounded-md border border-clinical-line bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">{title}</p>
+      {value && qrDataUrl ? (
+        <div className="mt-2 flex items-center gap-3">
+          <NextImage src={qrDataUrl} alt={`${title} for ${value}`} width={96} height={96} unoptimized className="h-24 w-24 rounded-md border border-clinical-line bg-white p-1" />
+          <div className="min-w-0">
+            <p className="break-words text-sm font-semibold text-clinical-ink">{value}</p>
+            {caption ? <p className="mt-1 text-xs leading-5 text-clinical-muted">{caption}</p> : null}
+          </div>
+        </div>
+      ) : (
+        <p className="mt-1 text-sm font-medium text-clinical-muted">Generate a barcode to create a QR code.</p>
+      )}
+    </div>
+  );
+}
+
+function QrUploadLabel({
+  label,
+  onChange
+}: {
+  label: string;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <label className="inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-clinical-line bg-white px-3 py-2 text-sm font-semibold hover:bg-clinical-panel">
+      <Upload className="h-4 w-4" aria-hidden="true" />
+      {label}
+      <input type="file" accept="image/*" className="sr-only" onChange={onChange} />
+    </label>
+  );
+}
+
+function PriorityGuide() {
+  return (
+    <div className="rounded-md border border-clinical-line bg-white p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-clinical-muted">Priority status guide</p>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+          <PriorityBadge priority="Routine" />
+          <p className="mt-2 text-xs leading-5 text-slate-700">Normal medication workflow. Pharmacy and nursing process it in standard queue order.</p>
+        </div>
+        <div className="rounded-md border border-yellow-300 bg-yellow-50 p-3">
+          <PriorityBadge priority="Urgent" />
+          <p className="mt-2 text-xs leading-5 text-yellow-900">Needs faster attention. Pharmacy review and nursing administration should notice it before routine orders.</p>
+        </div>
+        <div className="rounded-md border border-red-300 bg-red-50 p-3">
+          <PriorityBadge priority="STAT" />
+          <p className="mt-2 text-xs leading-5 text-red-800">Emergency priority. It appears with the strongest warning style and should be handled first in the demo queue.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PatientSummary({ patient, compact = false }: { patient: Patient; compact?: boolean }) {
   return (
     <div className="grid gap-4">
@@ -2317,6 +2526,7 @@ function PatientSummary({ patient, compact = false }: { patient: Patient; compac
         <InfoBlock title="Admission type" value={patient.admissionType} />
         <InfoBlock title="Date of birth" value={formatDate(patient.dateOfBirth)} />
         <InfoBlock title="Wristband barcode" value={patient.barcode} />
+        <QrCodePreview title="Patient QR code" value={patient.barcode} caption="Encodes the wristband barcode for patient identification." />
         <InfoBlock title="Gender" value={patient.gender || "Not recorded"} />
         <InfoBlock title="Nationality" value={patient.nationality || "Not recorded"} />
         <InfoBlock title="Citizen ID / Passport" value={patient.citizenId || "Not recorded"} />
